@@ -35,6 +35,10 @@
       margin-right: 20%;
       text-align: right;
     }
+    .system-message {
+      background: #d6f5d6;
+      text-align: center;
+    }
     .typing-cursor {
       display: inline-block;
       width: 8px;
@@ -81,6 +85,7 @@
     <div class="input-group">
       <input type="text" id="message-input" placeholder="اكتب رسالتك هنا..." />
       <button id="sendBtn">إرسال</button>
+      <button id="endSessionBtn">إنهاء الجلسة</button>
     </div>
   </div>
 
@@ -88,6 +93,7 @@
     const messagesEl = document.getElementById('messages');
     const inputEl = document.getElementById('message-input');
     const sendBtn = document.getElementById('sendBtn');
+    const endSessionBtn = document.getElementById('endSessionBtn');
     let currentAIEl = null;
     let currentText = '';
 
@@ -95,6 +101,7 @@
     inputEl.addEventListener('keypress', e => {
       if (e.key === 'Enter') sendMessage();
     });
+    endSessionBtn.addEventListener('click', endSession);
 
     function appendMessage(className, content) {
       const div = document.createElement('div');
@@ -120,15 +127,27 @@
     function startStream(userText) {
       currentAIEl = appendMessage('ai-message', '');
       currentText = '';
-      addTypingCursor();
+      let pendingWords = [];
+      let isAnimating = false;
+
+      async function processWords() {
+        if (pendingWords.length === 0) {
+          finalizeAI(currentText);
+          return;
+        }
+        const word = pendingWords.shift();
+        currentText += word;
+        updateDisplay(currentText);
+        setTimeout(processWords, 100);
+      }
 
       fetch('/api/chat-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: [{ type: 'text', text: userText }] })
       })
-      .then(async response => {
-        const reader = response.body.getReader();
+      .then(async res => {
+        const reader = res.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
 
@@ -137,50 +156,49 @@
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
-          const chunks = buffer.split('\n');
-          buffer = chunks.pop() || '';
+          const events = buffer.split('\n\n');
+          buffer = events.pop() || '';
 
-          for (const chunk of chunks) {
-            const prefix = 'data: ';
-            if (chunk.startsWith(prefix)) {
-              const token = chunk.slice(prefix.length);
-              // تجاهل كلمة done الكاملة عند نهايتها
-              if (token.trim().toLowerCase() === 'done') continue;
-              currentText += token;
-              updateDisplay(currentText);
+          for (const ev of events) {
+            if (ev.startsWith('data: ')) {
+              const payload = JSON.parse(ev.slice(6));
+              if (payload.token?.toLowerCase() === 'done') continue;
+              pendingWords.push(payload.token);
+            } else if (ev.startsWith('event: end')) {
+              // نهاية الاستريم
             }
           }
         }
 
-        finalizeAI(currentText);
+        if (!isAnimating) {
+          isAnimating = true;
+          processWords();
+        }
       })
-      .catch(err => {
-        showError(err.message);
-      });
+      .catch(err => showError(err.message));
     }
 
     function updateDisplay(text) {
-      currentAIEl.innerHTML = `${text.replace(/\n/g, '<br>')}<span class="typing-cursor"></span>`;
+      currentAIEl.innerHTML = text.replace(/\n/g, '<br>')
+                                + '<span class="typing-cursor"></span>';
       scrollToBottom();
     }
 
-    function addTypingCursor() {
-      currentAIEl.innerHTML += '<span class="typing-cursor"></span>';
-    }
-
     function finalizeAI(finalText) {
-      // إزالة الكلمة "done" إن وجدت في نهاية النص
       const cleaned = finalText.replace(/\s*done\s*$/i, '');
       currentAIEl.innerHTML = cleaned.replace(/\n/g, '<br>');
       currentAIEl = null;
-      currentText = '';
     }
 
     function showError(msg) {
-      const errorDiv = document.createElement('div');
-      errorDiv.className = 'message error-message';
-      errorDiv.textContent = `خطأ: ${msg}`;
-      messagesEl.appendChild(errorDiv);
+      appendMessage('error-message', `خطأ: ${msg}`);
+    }
+
+    function endSession() {
+      fetch('/api/end-session', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => appendMessage('system-message', data.message))
+        .catch(err => showError(err.message));
     }
   </script>
 </body>

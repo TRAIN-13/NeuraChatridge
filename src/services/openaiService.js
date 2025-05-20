@@ -1,5 +1,8 @@
 // src/services/openaiService.js
 import OpenAI from 'openai';
+import { db } from "../utils/firebase.js";
+import { collection, addDoc } from "firebase/firestore";
+
 
 const { OPENAI_API_KEY, OPENAI_ASSISTANT_ID, DEBUG } = process.env;
 
