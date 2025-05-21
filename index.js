@@ -1,3 +1,4 @@
+// ./index.js
 import app from "./src/app.js";
 import readline from "readline";
 import { fetchThreads } from "./src/services/threadService.js";
@@ -13,3 +14,5 @@ fetchThreads()
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
+
+//listAllThreads().then(threads => console.log(threads));

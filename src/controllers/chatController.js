@@ -1,5 +1,16 @@
 // src/controllers/chatController.js
-import { createThread, addMessage, streamThread } from '../services/openaiService.js';
+import {
+  createThread as createAIThread,
+  addMessage as aiAddMessage,
+  streamThread
+} from "../services/openaiService.js";
+
+import {
+  createThread as createFSThread, updateThreadTimestamp
+} from "../services/threadService.js";
+
+import * as messageService from "../services/messageService.js";
+
 
 export async function chatStream(req, res) {
   // 1. إعداد SSE
@@ -23,18 +34,27 @@ export async function chatStream(req, res) {
         // 4. احصل على threadId من الجلسة أو أنشئ واحداً جديداً
         let threadId = req.session.threadId;
         if (!threadId) {
-            threadId = await createThread();
+            threadId = await createAIThread();
             req.session.threadId = threadId;
             console.log(`🆕 New thread created: ${threadId}`);
+    
+            
+            // 2) أنشئ خيط في Firestore بنفس الـ ID
+            req.session.userId = 'اختبار_08';
+            await createFSThread(req.session.userId, threadId);
+            console.log(`🆕 New FS thread created: ${threadId}`);
         }
     
         // 5. أضف رسالة المستخدم إلى الخيط
-        await addMessage(threadId, contentText);
+        await aiAddMessage(threadId, contentText);
+        messageService.addMessage(threadId, "user", contentText)
+        updateThreadTimestamp(threadId);
     
         // 6. شغّل الاستريم على الثريد الحالي
         streamThread(threadId, {
             onTextDelta: chunk => {
                 res.write(`data: ${JSON.stringify({ token: chunk })}\n\n`);
+                messageService.addMessage(threadId, "assistant", JSON.stringify({ token: chunk }));
             },
             onEnd: () => {
                 res.write("event: end\ndata: done\n\n");

@@ -1,8 +1,6 @@
 // src/utils/firebase.js
 import { initializeApp } from "firebase/app";
-import { 
-    getFirestore//, collection, getDocs
-    } from "firebase/firestore";
+import { getFirestore, collection, getDocs } from "firebase/firestore";
 
 const firebaseConfig = {
     apiKey: "AIzaSyB_l8tNgPsNrzwE4c1fCzNqzQ0PrB9EBI0",
@@ -18,21 +16,6 @@ const app = initializeApp(firebaseConfig);
 
 // Init services (read & write)
 const db = getFirestore(app);
-
-// // Collection Ref
-// const colRef = collection(db, 'theadId');
-
-// // get collection data
-// getDocs(colRef)
-//     .then((snapshot) => {
-//         console.log(snapshot.docs)
-//     });
-
-
-// const querySnapshot = await getDocs(collection(db, "thredId"));
-// querySnapshot.forEach(docSnap => {
-//   console.log(docSnap.id, "=>", docSnap.data());
-// });
 
 
 export { app, db };

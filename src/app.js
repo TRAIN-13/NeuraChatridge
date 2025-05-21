@@ -1,3 +1,4 @@
+// ./src/app.js
 import express from "express";
 import dotenv from "dotenv";
 import session from "express-session";      // 1. استيراد الحزمة
@@ -13,6 +14,8 @@ app.use(session({
   resave: false,                // لا تعيد حفظ الجلسة إذا لم تتغير
   saveUninitialized: false,      // لا تحفظ الجلسة الجديدة لو بدون بيانات
   cookie: {
+    httpOnly: true,                                // لا يقرأ من الـ JS
+    sameSite: "lax",  
     secure: false,              // false في الاختبار (HTTP)، true في الإنتاج (HTTPS)
     maxAge: 1000 * 60 * 60      // صلاحية الجلسة: ساعة واحدة
   }
