@@ -3,13 +3,13 @@ import { db } from "../utils/firebase.js";
 import { doc, collection, addDoc,getDocs , setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 
 /**
- * تنشئ وثيقة جديدة في collection `threads`
+ * Create document in collection `threads`
  * @param {string?} userId
- * @returns {Promise<string>} الـ threadId الجديد
+ * @returns {Promise<string>} new threadId
  */
 
 
-export async function createThread(userId, threadId) {
+export async function createFSThread(userId, threadId) {
   const threadRef = doc(db, "threads", threadId);
   const data = {
     createdAt: serverTimestamp(),
@@ -28,6 +28,10 @@ export async function updateThreadTimestamp(threadId) {
 }
 
 
+
+
+
+// To Check connect in console
 export async function fetchThreads() {
   try {
     const colRef = collection(db, "threads");
@@ -53,18 +57,3 @@ export async function fetchThreads() {
     throw error;
   }
 }
-
-
-
-
-// export async function listAllThreads() {
-//   const threadsSnap = await getDocs(collection(db, "threads"));
-//   return threadsSnap.docs.map(doc => ({
-//     id: doc.id,
-    
-//     createdAt: doc.data().createdAt?.toDate?.() ?? null
-//   }));
-// }
-
-// مثال للاستخدام
-//listAllThreads().then(threads => console.log(threads));
