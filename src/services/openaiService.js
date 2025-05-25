@@ -1,12 +1,12 @@
 // src/services/openaiService.js
 import OpenAI from 'openai';
-import { db } from "../utils/firebase.js";
-import { collection, addDoc } from "firebase/firestore";
+//import { db } from "../utils/firebase.js";
+//import { collection, addDoc } from "firebase/firestore";
 
 
 const { OPENAI_API_KEY, OPENAI_ASSISTANT_ID, DEBUG } = process.env;
 
-// 1. التحقّق من الإعدادات المطلوبة
+// 1. Check for the requuird setting
 if (!OPENAI_API_KEY) {
   throw new Error('Missing OPENAI_API_KEY in environment');
 }
@@ -18,10 +18,10 @@ export const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 const ASSISTANT_ID = OPENAI_ASSISTANT_ID;
 
 /**
- *  إنشاء خيط جديد
- *  @returns {Promise<string>} معرف الخيط
+ *  create new thread
+ *  @returns {Promise<string>} threadId
  */
-export async function createThread() {
+export async function createAIThread() {
   DEBUG && console.debug("🔄 Creating a new thread...");
   const thread = await openai.beta.threads.create();
   DEBUG && console.debug("🧵 Thread created:", thread.id);
@@ -29,11 +29,12 @@ export async function createThread() {
 }
 
 /**
- *  إضافة رسالة أو مصفوفة رسائل إلى خيط موجود
+ *  Add messages or array from it to the thread
  *  @param {string} threadId
- *  @param {string|object[]} content - نص واحد أو مصفوفة من { role, content }
+ *  @param {string|object[]} content - 1 text or array { role, content }
  */
-export async function addMessage(threadId, content) {
+ 
+export async function aiAddMessage(threadId, content) {
   if (!threadId) {
     throw new Error("threadId is required for addMessage");
   }
@@ -64,25 +65,39 @@ export async function addMessage(threadId, content) {
   });
 }
 
+
 /**
- *  تشغيل الاستريم على خيط موجود
+ *  run stream on thread existed
  *  @param {string} threadId
- *  @param {object[]} messages - مصفوفة الرسائل الجديدة إن وجدت
+ *  @param {object[]} messages - array of messages if exits
  *  @param {{ onTextDelta, onToolCallDelta, onEnd, onError }} callbacks
  */
 export function streamThread(threadId, callbacks) {
-  if (!threadId) {
-    throw new Error("threadId is required for streamThread");
-  }
+  if (!threadId) throw new Error("threadId is required for streamThread");
 
-  // 3. تجهيز المعاملات للـstream
-  // نمرر فقط assistant_id
   const run = openai.beta.threads.runs.stream(threadId, {
-    assistant_id: ASSISTANT_ID
+    assistant_id: OPENAI_ASSISTANT_ID,
   });
 
-  run.on("textDelta", delta => callbacks.onTextDelta?.(delta.value));
-  run.on("toolCallDelta", delta => callbacks.onToolCallDelta?.(delta.value));
+  run.on('textCreated', () => console.log('بدأ توليد النص'));
+
+  run.on("textDelta", delta => {
+    // 1) تأكد من وجود محتوى
+    if (delta?.content && Array.isArray(delta.content)) {
+      // 2) مر على كل جزء نصي
+      for (const part of delta.content) {
+        if (part.type === "text" && part.text?.value) {
+          callbacks.onTextDelta?.(part.text.value);
+        }
+      }
+    }
+  });
+  
+  run.on("textDelta", chunk => {
+  callbacks.onTextDelta?.(chunk.value)
+});
+
+  run.on("toolCallDelta", delta => callbacks.onToolCallDelta?.(delta));
   run.on("end",        ()    => callbacks.onEnd?.());
   run.on("error",      err   => callbacks.onError?.(err));
 
