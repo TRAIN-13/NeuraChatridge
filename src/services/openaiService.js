@@ -79,7 +79,7 @@ export function streamThread(threadId, callbacks) {
     assistant_id: OPENAI_ASSISTANT_ID,
   });
 
-  run.on('textCreated', () => console.log('بدأ توليد النص'));
+  run.on('textCreated', () => console.log('Start generate text'));
 
   run.on("textDelta", delta => {
     // 1) تأكد من وجود محتوى

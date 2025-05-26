@@ -1,8 +1,7 @@
 // src/controllers/chatController.js
 import {
   createAIThread,
-  aiAddMessage,
-  streamThread
+  aiAddMessage
 } from "../services/openaiService.js";
 
 import {
@@ -12,8 +11,9 @@ import {
 
 import {
   bufferMessage,
-  flushAll
 } from "../services/messageService.js";
+
+import { runThreadStream } from "../services/streamService.js";
 
 
 export async function chatStream(req, res) {
@@ -56,46 +56,8 @@ export async function chatStream(req, res) {
     await bufferMessage(threadId, "user", contentText);
     updateThreadTimestamp(threadId);
 
-    // 6. Run stream on current thread
-    await streamThread(threadId, {
-      onTextDelta: chunk => {
-        try {
-            // 1. أرسل التوكن فورياً
-            console.log("⏳ Received text delta:", chunk);
-            res.write(`data: ${JSON.stringify({ token: chunk })}\n\n`);
-            res.flush?.();  // تأكد من الارسال الفوري
-    
-            // 2. خزّنها في البافر، لكن لا تدع أي خطأ يمنع الـ SSE
-            bufferMessage(threadId, "assistant", chunk);
-        } catch (err) {
-          console.error("Buffer error (ignored):", err);
-          // لا حاجة لعمل أي ردّ للعميل هنا
-        }
-      },
-    
-      onEnd: async () => {
-        try {
-          await flushAll(threadId);
-          console.log("✅ Stream ended");
-        } catch (err) {
-          console.error("Flush onEnd error:", err);
-        }
-        res.write("event: end\ndata: done\n\n");
-        res.end();
-      },
-    
-      onError: async err => {
-        console.error("Stream error:", err);
-        try {
-          await flushAll(threadId);
-        } catch (flushErr) {
-          console.error("Flush onError error:", flushErr);
-        }
-        delete req.session.threadId;
-        res.write(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
-        res.end();
-      }
-    });
+    // 6. Run reusable stream
+    return runThreadStream(threadId, req, res);
     
 
   } catch (err) {

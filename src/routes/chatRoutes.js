@@ -1,40 +1,48 @@
 import express from 'express';
 import { chatStream, endSession } from '../controllers/chatController.js';
+import { createThread } from '../controllers/threadController.js';
+import { addMessage } from '../controllers/messageController.js';
 
 const router = express.Router();
 
 router.post('/chat-stream', chatStream);
-router.post('/end-session', endSession);  // لإعادة ضبط الجلسة وإنهاء الثريد
+router.post('/end-session', endSession); 
 
+
+router.post('/create-threads', createThread)
 /*  To-Do
     Post Create threads "end point"
       request:
               {
-                userId: nullable,
+                user-Id: nullable,
                 message: required,
-                metaData: nullable
+                meta-Data: nullable
               }
       respond:
               {
-                userId: From Requested or Generate new id,
-                treadId: required,
-                isGuset: true if userId empty from req, else false,
+                user-Id: From Requested or Generate new id,
+                tread-Id: required,
+                is-Guset: true if userId empty from req, else false,
               }
 */
+
+// New endpoint: إضافة رسالة (user → OpenAI thread + Firestore)
+router.post('/create-messages', addMessage);
+
 
 /*  To-Do
     Post Create messages "end point"
       request:
               {
-                userId: required,
-                treadId: required,
+                user-Id: required,
+                tread-Id: required,
                 message: required,
-                metaData: nullable
+                meta-Data: nullable
               }
       respond:
               {
-                userId: From Requested,
-                treadId: required,
+                user-Id: From Requested,
+                tread-Id: required,
                 succsess: true
               }
 */
