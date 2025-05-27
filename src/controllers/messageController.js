@@ -1,67 +1,53 @@
-// src/controllers/messageController.js
+import logger from '../utils/logger.js';
 import { aiAddMessage } from '../services/openaiService.js';
-import { addMessageInstant, bufferMessage, flushAll } from '../services/messageService.js';
+import { addMessageInstant, flushAll } from '../services/messageService.js';
 import { updateThreadTimestamp } from '../services/threadService.js';
 import { runThreadStream } from '../services/streamService.js';
+import { sanitizeError } from '../utils/errorUtils.js';
+import {
+  normalizeAndValidateInput,
+  setupConnectionCleanup,
+  sendErrorResponse
+} from '../utils/messageHelpers.js';
 
-/**
- * Sanitizes error details before exposing to clients.
- * In production hides the real message to prevent data exposure.
- */
-function sanitizeError(err) {
-  return {
-    code: err.code || 'INTERNAL_ERROR',
-    message: process.env.NODE_ENV === 'production'
-      ? 'Internal server error'
-      : err.message
-  };
-}
-
-/**
- * POST /api/create-messages
- * Streams assistant responses via SSE and uploads user messages immediately,
- * batching assistant replies in groups of n for Firestore.
- */
 export async function addMessage(req, res) {
-  // Handle client disconnects to clean up buffers
-  const { user_Id, thread_Id } = req.body;
-  const origThread = thread_Id;
-  req.on('close', async () => {
-    console.log(`Client disconnected for thread ${origThread}`);
-    await flushAll(origThread);
-  });
+  const { requestId } = req;
+  const startTime = Date.now();
 
   try {
-    // Normalize request fields
-    const userId = req.body.userId ?? user_Id;
-    const threadId = req.body.threadId ?? thread_Id;
-    const message = req.body.message?.trim();
+    const { userId, threadId, message } = normalizeAndValidateInput(req.body);
 
-    // Validate inputs
-    if (!userId || !threadId || !message) {
-      const errPayload = { code: 'INVALID_INPUT', message: 'userId, threadId, and message are required' };
-      res.write(`event: error\ndata: ${JSON.stringify(errPayload)}\n\n`);
-      return res.end();
-    }
+    logger.info('Processing new message', { requestId, userId, threadId, messageLength: message.length });
 
-    // Persist user message immediately
-    await addMessageInstant(threadId, 'user', message);
+    // 1) التوازي بين الحفظ والإرسال
+    await Promise.all([
+      addMessageInstant(threadId, 'user', message),
+      aiAddMessage(threadId, message),
+      updateThreadTimestamp(threadId)
+    ]);
 
-    // Send to OpenAI and update thread timestamp
-    await aiAddMessage(threadId, message);
-    await updateThreadTimestamp(threadId);
+    logger.debug('Message processing completed', { requestId, threadId, processingTime: Date.now() - startTime });
 
-    // Begin SSE stream for assistant replies
+    // 2) ربط التنظيف عند انقطاع الاتصال
+    setupConnectionCleanup(req, res, threadId);
+
+    // 3) بدء تدفق SSE
     return runThreadStream(threadId, req, res);
 
   } catch (err) {
-    console.error('addMessage error:', err);
-    // Flush any remaining assistant buffers
-    await flushAll(req.body.threadId);
+    // التعامل المركزي مع الخطأ
+    logger.error('Message processing failed', {
+      requestId,
+      threadId: req.body.threadId ?? req.body.thread_Id,
+      error: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
 
-    // Sanitize before sending
+    // محاولة تفريغ أي رسائل في buffer
+    await flushAll(req.body.threadId ?? req.body.thread_Id);
+
+    // تنقية الخطأ وإرساله
     const { code, message } = sanitizeError(err);
-    res.write(`event: error\ndata: ${JSON.stringify({ code, message })}\n\n`);
-    return res.end();
+    sendErrorResponse(res, code, message, requestId);
   }
 }

@@ -98,7 +98,7 @@ export function streamThread(threadId, callbacks) {
 });
 
   run.on("toolCallDelta", delta => callbacks.onToolCallDelta?.(delta));
-  run.on("end",        ()    => callbacks.onEnd?.());
+  run.on("end",        ()    => callbacks.onEnd?.(console.log("stream end\n\n")));
   run.on("error",      err   => callbacks.onError?.(err));
 
   return run;

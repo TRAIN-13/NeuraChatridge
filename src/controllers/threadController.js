@@ -1,15 +1,12 @@
 // src/controllers/threadController.js
-import { v4 as uuidv4 } from 'uuid';
+
 import logger from '../utils/logger.js';
 import {
-  createAIThread,
-  aiAddMessage
+  createAIThread
 } from '../services/openaiService.js';
 import {
-  createFSThread,
-  updateThreadTimestamp
+  createFSThread
 } from '../services/threadService.js';
-import { bufferMessage } from '../services/messageService.js';
 import { runThreadStream } from '../services/streamService.js';
 import {
   generateGuestUserId,
@@ -17,7 +14,7 @@ import {
   handleInitialMessage,
   logOperationSuccess
 } from '../utils/threadHelpers.js';
-import { sanitizeError } from '../middleware/errorHandler.js';
+import { sanitizeError } from '../utils/errorUtils.js';
 
 /**
  * POST /api/threads
