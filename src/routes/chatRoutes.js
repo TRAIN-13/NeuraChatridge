@@ -8,10 +8,10 @@ import { errorLogger, wrapAsync } from '../middleware/errorHandler.js';
 
 const router = express.Router();
 
-// 1) أضف ميدلوير تتبع الطلبات
+// 1) middleware tracker
 router.use(requestTracker);
 
-// 2) عرف المسارات مع تغليف wrapAsync
+// 2) path with wrapAsync
 router.post('/chat-stream',    wrapAsync(chatStream));
 router.post('/end-session',    wrapAsync(endSession));
 router.post('/create-threads', wrapAsync(createThread));
