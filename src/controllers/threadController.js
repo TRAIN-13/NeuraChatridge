@@ -16,7 +16,7 @@ import { runThreadStream } from "../services/streamService.js";
  */
 export async function createThread(req, res) {
   try {
-    let { userId, message } = req.body;
+    let { user_Id: userId, message } = req.body;
     // To-Do
     // req meta data
     const isGuest = !userId;

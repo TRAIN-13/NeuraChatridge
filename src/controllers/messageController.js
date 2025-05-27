@@ -5,40 +5,63 @@ import { updateThreadTimestamp } from '../services/threadService.js';
 import { runThreadStream } from '../services/streamService.js';
 
 /**
+ * Sanitizes error details before exposing to clients.
+ * In production hides the real message to prevent data exposure.
+ */
+function sanitizeError(err) {
+  return {
+    code: err.code || 'INTERNAL_ERROR',
+    message: process.env.NODE_ENV === 'production'
+      ? 'Internal server error'
+      : err.message
+  };
+}
+
+/**
  * POST /api/create-messages
  * Streams assistant responses via SSE and uploads user messages immediately,
  * batching assistant replies in groups of n for Firestore.
  */
 export async function addMessage(req, res) {
-  // 1. Setup SSE
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.flushHeaders?.();
+  // Handle client disconnects to clean up buffers
+  const { user_Id, thread_Id } = req.body;
+  const origThread = thread_Id;
+  req.on('close', async () => {
+    console.log(`Client disconnected for thread ${origThread}`);
+    await flushAll(origThread);
+  });
 
   try {
-    const { userId, threadId, message, metaData } = req.body;
-    if (!userId || !threadId || !message?.trim()) {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: 'userId, threadId, and message are required' })}\n\n`);
+    // Normalize request fields
+    const userId = req.body.userId ?? user_Id;
+    const threadId = req.body.threadId ?? thread_Id;
+    const message = req.body.message?.trim();
+
+    // Validate inputs
+    if (!userId || !threadId || !message) {
+      const errPayload = { code: 'INVALID_INPUT', message: 'userId, threadId, and message are required' };
+      res.write(`event: error\ndata: ${JSON.stringify(errPayload)}\n\n`);
       return res.end();
     }
 
-    // 2. Persist user message immediately إلى Firestore
+    // Persist user message immediately
     await addMessageInstant(threadId, 'user', message);
 
-    // 3. أرسل للمساعد وابدأ الستريم
+    // Send to OpenAI and update thread timestamp
     await aiAddMessage(threadId, message);
-
-    // 4. حدّث توقيت الثريد
     await updateThreadTimestamp(threadId);
 
-    // 6. Stream assistant responses, batching n items before writing to Firestore
+    // Begin SSE stream for assistant replies
     return runThreadStream(threadId, req, res);
-    
+
   } catch (err) {
     console.error('addMessage error:', err);
-    // Flush any remaining buffered messages
+    // Flush any remaining assistant buffers
     await flushAll(req.body.threadId);
-    res.write(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
-    res.end();
+
+    // Sanitize before sending
+    const { code, message } = sanitizeError(err);
+    res.write(`event: error\ndata: ${JSON.stringify({ code, message })}\n\n`);
+    return res.end();
   }
 }
