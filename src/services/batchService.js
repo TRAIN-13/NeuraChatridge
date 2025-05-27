@@ -1,136 +1,143 @@
-/* src/services/batchService.js */
+// src/services/batchService.js
 import logger from '../utils/logger.js';
 import { v4 as uuidv4 } from 'uuid';
 
-
-export class BatchBuffer {
-  constructor(batchSize, onFlush, options = {}) {
-    this.validateInputs(batchSize, onFlush);
-    
+/**
+ * ResilientBatcher: unified batch-flush utility with size, time, retry, and graceful shutdown.
+ */
+export class ResilientBatcher {
+  /**
+   * @param {Object} config
+   * @param {number} config.batchSize      - عدد الرسائل قبل الفلاش
+   * @param {number} config.maxDelay       - أقصى تأخير (ms) قبل الفلاش
+   * @param {function} config.onFlush      - دالة التنفيذ عند الفلاش
+   * @param {number} [config.maxRetries]   - أقصى عدد محاولات عند الفشل
+   * @param {number} [config.retryDelay]   - تأخير أساسي (ms) لإعادة المحاولة
+   */
+  constructor({ batchSize, maxDelay, onFlush, maxRetries = 3, retryDelay = 1000 }) {
+    this._validateConfig(batchSize, maxDelay, onFlush);
     this.batchSize = batchSize;
+    this.maxDelay = maxDelay;
     this.onFlush = onFlush;
-    this.maxRetries = options.maxRetries || 3;
-    this.retryDelay = options.retryDelay || 1000;
-    this.buffers = new Map();
-    this.flushingLocks = new Map();
-    this.pendingOperations = new Map();
+    this.maxRetries = maxRetries;
+    this.retryDelay = retryDelay;
+    this.buffers = new Map();        // threadId -> Array<item>
+    this.timers = new Map();         // threadId -> Timeout
+    this.locks = new Map();          // threadId -> boolean
+    this.pending = new Map();        // threadId -> Set<operationId>
   }
 
-  validateInputs(batchSize, onFlush) {
+  _validateConfig(batchSize, maxDelay, onFlush) {
     if (typeof batchSize !== 'number' || batchSize < 1) {
-      throw new Error('batchSize must be a positive integer');
+      throw new Error('batchSize must be a positive number');
+    }
+    if (typeof maxDelay !== 'number' || maxDelay < 0) {
+      throw new Error('maxDelay must be a non-negative number');
     }
     if (typeof onFlush !== 'function') {
       throw new Error('onFlush must be a function');
     }
   }
 
+  /**
+   * Add item to buffer, schedule flush by size or time
+   */
   async add(threadId, item) {
-    if (!this.buffers.has(threadId)) {
-      this.initializeThreadBuffer(threadId);
-    }
+    if (!this.buffers.has(threadId)) this._initThread(threadId);
+    this.buffers.get(threadId).push(item);
 
-    const buffer = this.buffers.get(threadId);
-    buffer.push(item);
-
-    if (buffer.length >= this.batchSize) {
-      return this.scheduleFlush(threadId);
+    if (this.buffers.get(threadId).length >= this.batchSize) {
+      clearTimeout(this.timers.get(threadId));
+      return this._scheduleFlush(threadId);
     }
+    // reset delay timer
+    clearTimeout(this.timers.get(threadId));
+    this.timers.set(
+      threadId,
+      setTimeout(() => this._scheduleFlush(threadId), this.maxDelay)
+    );
   }
 
-  initializeThreadBuffer(threadId) {
+  _initThread(threadId) {
     this.buffers.set(threadId, []);
-    this.flushingLocks.set(threadId, false);
-    this.pendingOperations.set(threadId, new Set());
+    this.locks.set(threadId, false);
+    this.pending.set(threadId, new Set());
   }
 
-  async scheduleFlush(threadId) {
-    if (this.flushingLocks.get(threadId)) return;
-
-    this.flushingLocks.set(threadId, true);
+  async _scheduleFlush(threadId) {
+    if (this.locks.get(threadId)) return;
+    this.locks.set(threadId, true);
     try {
-      await this.flushWithRetry(threadId);
+      await this._flushWithRetry(threadId);
     } finally {
-      this.flushingLocks.set(threadId, false);
+      this.locks.set(threadId, false);
     }
   }
 
-  async flushWithRetry(threadId, attempt = 1) {
-    const items = this.getAndClearBuffer(threadId);
+  async _flushWithRetry(threadId, attempt = 1) {
+    const items = this._drainBuffer(threadId);
     if (items.length === 0) return;
 
-    try {
-      await this.executeFlush(threadId, items);
-    } catch (error) {
-      await this.handleFlushError(error, threadId, items, attempt);
-    }
-  }
-
-  async executeFlush(threadId, items) {
     const operationId = uuidv4().substring(0, 8);
-    this.pendingOperations.get(threadId).add(operationId);
+    this.pending.get(threadId).add(operationId);
 
-    logger.debug(`Flushing batch for thread ${threadId}`, {
-      operationId,
-      batchSize: items.length
-    });
-
-    await this.onFlush(threadId, items);
-    
-    this.pendingOperations.get(threadId).delete(operationId);
-  }
-
-  async handleFlushError(error, threadId, items, attempt) {
-    logger.error(`Batch flush failed (attempt ${attempt})`, {
-      threadId,
-      error: error.message,
-      remainingItems: items.length
-    });
-
-    if (attempt <= this.maxRetries) {
-      await this.retryFlush(threadId, items, attempt);
-    } else {
-      await this.handlePermanentFailure(threadId, items);
+    try {
+      logger.debug(`Flushing batch ${operationId}`, { threadId, size: items.length });
+      await this.onFlush(threadId, items);
+      this.pending.get(threadId).delete(operationId);
+    } catch (err) {
+      logger.error(`Flush failed (attempt ${attempt})`, { threadId, operationId, error: err.message });
+      this.pending.get(threadId).delete(operationId);
+      if (attempt < this.maxRetries) {
+        await this._delay(this.retryDelay * attempt);
+        // put back items for retry
+        this.buffers.get(threadId).unshift(...items);
+        return this._flushWithRetry(threadId, attempt + 1);
+      } else {
+        logger.error('Permanent flush failure', { threadId, lost: items.length });
+        // optionally notify operations team
+      }
     }
   }
 
-  async retryFlush(threadId, items, attempt) {
-    await new Promise(r => setTimeout(r, this.retryDelay * attempt));
-    this.buffers.get(threadId).unshift(...items);
-    return this.flushWithRetry(threadId, attempt + 1);
-  }
-
-  async handlePermanentFailure(threadId, items) {
-    logger.error('Permanent batch flush failure', {
-      threadId,
-      lostItems: items.length
-    });
-    // يمكن إضافة إشعار للفريق الفني هنا
-  }
-
-  async flush(threadId) {
-    const items = this.getAndClearBuffer(threadId);
-    if (items.length > 0) {
-      await this.executeFlush(threadId, items);
-    }
-  }
-
-  getAndClearBuffer(threadId) {
+  _drainBuffer(threadId) {
     const items = this.buffers.get(threadId) || [];
     this.buffers.set(threadId, []);
     return items;
   }
 
-  async flushAll(threadId) {
-    while (this.pendingOperations.get(threadId)?.size > 0) {
-      await new Promise(r => setTimeout(r, 500));
+  async flush(threadId) {
+    // immediate flush without retry
+    if (!this.buffers.has(threadId)) return;
+    clearTimeout(this.timers.get(threadId));
+    const items = this._drainBuffer(threadId);
+    if (items.length === 0) return;
+    try {
+      await this.onFlush(threadId, items);
+    } catch (err) {
+      logger.error('Immediate flush failed', { threadId, error: err.message });
     }
-    await this.flush(threadId);
+  }
+
+  async flushAll() {
+    const ids = Array.from(this.buffers.keys());
+    for (const threadId of ids) {
+      clearTimeout(this.timers.get(threadId));
+      await this._scheduleFlush(threadId);
+    }
   }
 
   async gracefulShutdown() {
-    for (const threadId of this.buffers.keys()) {
-      await this.flushAll(threadId);
+    await this.flushAll();
+    // wait for pending ops
+    for (const [threadId, ops] of this.pending) {
+      while (ops.size > 0) {
+        await this._delay(500);
+      }
     }
+  }
+
+  _delay(ms) {
+    return new Promise(r => setTimeout(r, ms));
   }
 }
