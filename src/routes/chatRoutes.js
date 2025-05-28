@@ -1,5 +1,5 @@
 import express from 'express';
-import { chatStream, endSession } from '../controllers/chatController.js';
+//import { chatStream, endSession } from '../controllers/chatController.js';
 import { createThread }          from '../controllers/threadController.js';
 import { addMessage }            from '../controllers/messageController.js';
 
@@ -12,8 +12,8 @@ const router = express.Router();
 router.use(requestTracker);
 
 // 2) path with wrapAsync
-router.post('/chat-stream',    wrapAsync(chatStream));
-router.post('/end-session',    wrapAsync(endSession));
+//router.post('/chat-stream',    wrapAsync(chatStream));
+//router.post('/end-session',    wrapAsync(endSession));
 router.post('/create-threads', wrapAsync(createThread));
 router.post('/create-messages',wrapAsync(addMessage));
 

@@ -1,20 +1,22 @@
 // src/services/messageService.js
 import { db } from '../utils/firebase.js';
-import { collection, writeBatch, doc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, writeBatch, doc, addDoc } from 'firebase/firestore';
 import { ResilientBatcher } from './batchService.js';
 
 /**
- * دالة onFlush: تكتب دفعة الرسائل في Firestore
+ * دالة onFlush: تكتب دفعة الرسائل في Firestore مع طابع زمني مُرسل من العميل (timestampMs)
  */
 async function flushAssistantMessages(threadId, messages) {
   const batch = writeBatch(db);
   const msgsCol = collection(db, `threads/${threadId}/messages`);
-  
-  for (const { author, content } of messages) {
+  for (const { author, content, timestampMs } of messages) {
     const ref = doc(msgsCol);
-    batch.set(ref, { author, content, createdAt: serverTimestamp() });
+    batch.set(ref, {
+      author,
+      content: { content },
+      receivedAt: timestampMs
+    });
   }
-  
   await batch.commit();
 }
 
@@ -37,14 +39,15 @@ export async function addMessageInstant(threadId, author, content) {
     throw new Error('Message content must be a non-empty string');
   }
   const msgsCol = collection(db, `threads/${threadId}/messages`);
-  await addDoc(msgsCol, { author, content, createdAt: serverTimestamp() });
+  await addDoc(msgsCol, { author, content, createdAt: Date.now() });
 }
 
 /**
- * أضف رسالة المساعد إلى البافر لإرسالها دفعة لاحقاً
+ * أضف رسالة المساعد إلى البافر مع طابع زمني للاستقبال
  */
-export function bufferMessage(threadId, author, content) {
-  return assistantBatcher.add(threadId, { author, content });
+export function bufferMessage(threadId, author, text, receivedAt) {
+  //const timestampMs = Date.now();
+  return assistantBatcher.add(threadId, { author, content: text, receivedAt});
 }
 
 /**

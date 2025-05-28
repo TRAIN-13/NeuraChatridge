@@ -11,25 +11,29 @@ import { bufferMessage, flushAll } from './messageService.js';
  */
 export function runThreadStream(threadId, req, res) {
   // 1. إعداد الـ SSE headers قبل أي كتابة
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.();
+
 
   // 2. استدعاء OpenAI Stream مرة واحدة مع مجموعة الـ callbacks المعرفة هنا
-  const stream = openaiStream(threadId, {
-    onTextDelta: chunk => {
-      try {
-        // أرسل الحزمة فورياً
-        res.write(`data: ${JSON.stringify({ token: chunk })}\n\n`);
-        res.flush?.();
-        // خزّن في Firestore buffer
-        bufferMessage(threadId, 'assistant', chunk);
-      } catch (err) {
-        console.error('Buffer error (ignored):', err);
-      }
-    },
-    onEnd: async () => {
+ const stream = openaiStream(threadId, {
+   onTextDelta: chunk => {
+     try {
+       // 1) احصل على الطابع الزمني المطلق (ms since Unix epoch)
+       const timestampMs = Date.now();
+
+       // 2) أرسل الحزمة مع token و timestamp
+      //  res.write(`data: ${JSON.stringify({
+      //    token: chunk,
+      //    receivedAt : timestampMs
+      //  })}\n\n`);
+       //res.flush?.();
+
+       // 3) خزّن في Firestore buffer مع النص والطابع الزمني
+       bufferMessage(threadId, 'assistant', chunk, timestampMs);
+     } catch (err) {
+       console.error('Buffer error (ignored):', err);
+     }
+   },
+   onEnd: async () => {
       try {
         await flushAll(threadId);
       } catch (err) {

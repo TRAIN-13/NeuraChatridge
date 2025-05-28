@@ -15,11 +15,10 @@ import {
   logOperationSuccess
 } from '../utils/threadHelpers.js';
 import { sanitizeError } from '../utils/errorUtils.js';
+import { initSSE, sendSSEMeta } from '../utils/sseHelpers.js';
 
 /**
  * POST /api/threads
- * إنشاء ثريد جديد مع رسالة ابتدائية
- * الرسالة الابتدائية إجبارية.
  */
 export async function createThread(req, res, next) {
   const { requestId } = req;
@@ -50,11 +49,17 @@ export async function createThread(req, res, next) {
 
     logger.debug('External services initialized', { requestId, threadId });
 
+    initSSE(res);
+    sendSSEMeta(res, threadId, userId, isGuest /*, يمكنك تمرير array مختلفة بدل [{}] */);
+
+    //res.write(`event: meta\ndata: ${JSON.stringify({ threadId, userId, isGuest })}\n\n`);
+
+
     // 4. معالجة الرسالة الابتدائية
     await handleInitialMessage(threadId, message.trim(), requestId);
 
     // 5. بدء تدفق SSE
-    return runThreadStream(threadId, req, res);
+    runThreadStream(threadId, req, res);
 
   } catch (err) {
     logger.error('Thread creation failed', {

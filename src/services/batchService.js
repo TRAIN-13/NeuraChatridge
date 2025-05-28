@@ -43,20 +43,36 @@ export class ResilientBatcher {
    * Add item to buffer, schedule flush by size or time
    */
   async add(threadId, item) {
-    if (!this.buffers.has(threadId)) this._initThread(threadId);
-    this.buffers.get(threadId).push(item);
-
+    // item = { author, content, timestampMs }
+    if (!this.buffers.has(threadId)) {
+      this._initThread(threadId);
+    }
+  
+    // إذا المستخدِم مرّر receivedAt (ms) فاستخدمه، وإلا اقتطع واحد جديد
+    const timestampMs = typeof item.receivedAt === 'number'
+      ? item.receivedAt
+      : Date.now();
+    const timestampedItem = {
+      author:   item.author,
+      content:  item.content,
+      timestampMs
+    };
+    this.buffers.get(threadId).push(timestampedItem);
+  
+    // إذا وصلنا الحد المطلوب من العناصر، نفّذ الفلاش فوراً
     if (this.buffers.get(threadId).length >= this.batchSize) {
       clearTimeout(this.timers.get(threadId));
       return this._scheduleFlush(threadId);
     }
-    // reset delay timer
+  
+    // وإلا، جدّد المؤقت لتنفيذ الفلاش بعد maxDelay ملّي ثانية
     clearTimeout(this.timers.get(threadId));
     this.timers.set(
       threadId,
       setTimeout(() => this._scheduleFlush(threadId), this.maxDelay)
     );
   }
+
 
   _initThread(threadId) {
     this.buffers.set(threadId, []);

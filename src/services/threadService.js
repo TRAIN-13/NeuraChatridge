@@ -11,10 +11,12 @@ import { doc, collection, addDoc,getDocs , setDoc, updateDoc, serverTimestamp } 
 
 export async function createFSThread(userId, threadId) {
   const threadRef = doc(db, "threads", threadId);
+  //console.log("db: ",db);
   const data = {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   };
+  //console.log("data: ",data)
   if (userId) data.userId = userId;
   await setDoc(threadRef, data);
 }
@@ -42,7 +44,7 @@ export async function fetchThreads() {
       const data = docSnap.data();
 
       return {
-        id:          docSnap.id,               // ← هنا اسم المستند
+        id:          docSnap.id,              
         userId:      data.userId,
         chunk:       data.chunk,
         createdTime: data.createdAt?.toDate() ?? null,
