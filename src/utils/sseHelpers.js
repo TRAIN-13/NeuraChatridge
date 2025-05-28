@@ -16,16 +16,13 @@ export function initSSE(res, status = 201) {
 }
 
 /**
- * يبني ويرسل حدث meta بصيغة JSON يتضمن التاريخ والوقت والمنطقة الزمنية وبيانات الثريد والمستخدم والوضع الضيف
- * @param {import('express').Response} res - استجابة Express
- * @param {string} threadId - معرف الثريد
- * @param {string} userId - معرف المستخدم
- * @param {boolean} isGuest - ما إذا كان المستخدم ضيفاً
+ * تنسيق الوقت الحالي للطابع الزمني ونسق المنطقة الزمنية
+ * @returns {{DateTime: number, DateTimeZone: {date: string, timezone_type: number, timezone: string}}}
  */
-export function sendSSEMeta(res, threadId, userId, isGuest) {
+function getSSETimeData() {
     const now = new Date();
-    const epoch = Math.floor(now.getTime() / 1000);
-    const localDate = now
+    const DateTime = Math.floor(now.getTime() / 1000);
+    const date = now
         .toLocaleString('en-CA', {
             timeZone: 'Asia/Riyadh',
             hour12: false,
@@ -39,32 +36,56 @@ export function sendSSEMeta(res, threadId, userId, isGuest) {
         })
         .replace(',', '')
         .replace('T', ' ');
-    const tzName = 'Asia/Riyadh';
-
-    const payload = {
-        response: {
-            status: 200,
-            DateTime: epoch,
-            DateTimeZone: {
-                date: localDate,
-                timezone_type: 3,
-                timezone: tzName
-            }
-        },
-        data: {
-            all: [
-                {
-                    threadId,
-                    userId,
-                    isGuest
-                }
-            ]
+    return {
+        DateTime,
+        DateTimeZone: {
+            date,
+            timezone_type: 3,
+            timezone: 'Asia/Riyadh'
         }
     };
+}
 
+/**
+ * يرسل حدث JSON عبر SSE بنفس التنسيق
+ * @param {import('express').Response} res
+ * @param {object} payload - كائن JSON للإرسال
+ */
+function sendSSEJson(res, payload) {
     res.write(`event: json\n`);
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
     if (typeof res.flush === 'function') {
         res.flush();
     }
+}
+
+/**
+ * يبني ويرسل حدث JSON يحتوي على بيانات الثريد والمستخدم وحالة الضيف
+ * @param {import('express').Response} res
+ * @param {string} threadId
+ * @param {string} userId
+ * @param {boolean} isGuest
+ */
+export function sendSSEMetaThread(res, threadId, userId, isGuest) {
+    const { DateTime, DateTimeZone } = getSSETimeData();
+    const payload = {
+        response: { status: 200, DateTime, DateTimeZone },
+        data: { all: [{ threadId, userId, isGuest }] }
+    };
+    sendSSEJson(res, payload);
+}
+
+/**
+ * يبني ويرسل حدث JSON يحتوي على بيانات الثريد والمستخدم فقط
+ * @param {import('express').Response} res
+ * @param {string} threadId
+ * @param {string} userId
+ */
+export function sendSSEMetaMessage(res, threadId, userId) {
+    const { DateTime, DateTimeZone } = getSSETimeData();
+    const payload = {
+        response: { status: 200, DateTime, DateTimeZone },
+        data: { all: [{ threadId, userId }] }
+    };
+    sendSSEJson(res, payload);
 }

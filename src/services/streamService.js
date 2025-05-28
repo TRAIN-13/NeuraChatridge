@@ -10,22 +10,12 @@ import { bufferMessage, flushAll } from './messageService.js';
  * @param {object} res      - كائن Express response
  */
 export function runThreadStream(threadId, req, res) {
-  // 1. إعداد الـ SSE headers قبل أي كتابة
-
-
   // 2. استدعاء OpenAI Stream مرة واحدة مع مجموعة الـ callbacks المعرفة هنا
  const stream = openaiStream(threadId, {
    onTextDelta: chunk => {
      try {
        // 1) احصل على الطابع الزمني المطلق (ms since Unix epoch)
        const timestampMs = Date.now();
-
-       // 2) أرسل الحزمة مع token و timestamp
-      //  res.write(`data: ${JSON.stringify({
-      //    token: chunk,
-      //    receivedAt : timestampMs
-      //  })}\n\n`);
-       //res.flush?.();
 
        // 3) خزّن في Firestore buffer مع النص والطابع الزمني
        bufferMessage(threadId, 'assistant', chunk, timestampMs);
