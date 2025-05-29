@@ -90,116 +90,150 @@
   </div>
 
   <script>
-    const messagesEl = document.getElementById('messages');
-    const inputEl = document.getElementById('message-input');
-    const sendBtn = document.getElementById('sendBtn');
-    const endSessionBtn = document.getElementById('endSessionBtn');
-    let currentAIEl = null;
-    let currentText = '';
+    (() => {
+      const messagesEl = document.getElementById('messages');
+      const inputEl    = document.getElementById('message-input');
+      const sendBtn    = document.getElementById('sendBtn');
+      const endBtn     = document.getElementById('endSessionBtn');
 
-    sendBtn.addEventListener('click', sendMessage);
-    inputEl.addEventListener('keypress', e => {
-      if (e.key === 'Enter') sendMessage();
-    });
-    endSessionBtn.addEventListener('click', endSession);
+      // 1. استخراج threadId و userId من الـ URL أو بالسؤال
+      const params   = new URLSearchParams(window.location.search);
+      const threadId = params.get('threadId') || prompt('أدخل رقم الثريد (threadId):');
+      const userId   = params.get('userId')   || prompt('أدخل رقم المستخدم (userId):');
 
-    function appendMessage(className, content) {
-      const div = document.createElement('div');
-      div.className = `message ${className}`;
-      div.textContent = content;
-      messagesEl.appendChild(div);
-      scrollToBottom();
-      return div;
-    }
+      // 2. عند التحميل: جلب وعرض التاريخ
+      document.addEventListener('DOMContentLoaded', fetchHistory);
 
-    function scrollToBottom() {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
+      // 3. إعداد مستمعي الأحداث
+      sendBtn.addEventListener('click', sendMessage);
+      inputEl.addEventListener('keypress', e => {
+        if (e.key === 'Enter') sendMessage();
+      });
+      endBtn.addEventListener('click', endSession);
 
-    function sendMessage() {
-      const text = inputEl.value.trim();
-      if (!text) return;
-      appendMessage('user-message', text);
-      inputEl.value = '';
-      startStream(text);
-    }
+      // جلب الرسائل من السيرفر
+      async function fetchHistory() {
+        try {
+          const res = await fetch('/api/fetch-messages', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ threadId, userId })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'فشل جلب التاريخ');
+          const messages = Array.isArray(data.messages) ? data.messages : [];
 
-    function startStream(userText) {
-      currentAIEl = appendMessage('ai-message', '');
-      currentText = '';
-      let pendingWords = [];
-      let isAnimating = false;
+          // 4. فرز الرسائل بناءً على receivedAt
+          messages.sort((a, b) => a.receivedAt - b.receivedAt);
 
-      async function processWords() {
-        if (pendingWords.length === 0) {
-          finalizeAI(currentText);
-          return;
+          // 5. عرض الرسائل بالتسلسل (يوزر → مساعد → يوزر → …)
+          displayMessages(messages);
+        } catch (err) {
+          appendMessage('error-message', 'خطأ في تحميل الرسائل: ' + err.message);
         }
-        const word = pendingWords.shift();
-        currentText += word;
-        updateDisplay(currentText);
-        setTimeout(processWords, 100);
       }
 
-      fetch('/api/chat-stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: [{ type: 'text', text: userText }] })
-      })
-      .then(async res => {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
+      // عرض مصفوفة الرسائل مع تجميع رسائل المساعد
+      function displayMessages(messages) {
+        messagesEl.innerHTML = '';
+        let bufferAI = [];
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const events = buffer.split('\n\n');
-          buffer = events.pop() || '';
-
-          for (const ev of events) {
-            if (ev.startsWith('data: ')) {
-              const payload = JSON.parse(ev.slice(6));
-              if (payload.token?.toLowerCase() === 'done') continue;
-              pendingWords.push(payload.token);
-            } else if (ev.startsWith('event: end')) {
-              // نهاية الاستريم
+        messages.forEach(msg => {
+          if (msg.author === 'user') {
+            if (bufferAI.length) {
+              appendMessage('ai-message', bufferAI.join(' '));
+              bufferAI = [];
             }
+            appendMessage('user-message', msg.content);
+          } else {
+            bufferAI.push(msg.content);
           }
+        });
+
+        if (bufferAI.length) {
+          appendMessage('ai-message', bufferAI.join(' '));
         }
+      }
 
-        if (!isAnimating) {
-          isAnimating = true;
-          processWords();
-        }
-      })
-      .catch(err => showError(err.message));
-    }
+      // إضافة رسالة إلى الـ DOM
+      function appendMessage(cls, text) {
+        const div = document.createElement('div');
+        div.className = `message ${cls}`;
+        div.innerHTML = text.replace(/\n/g, '<br>');
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        return div;
+      }
 
-    function updateDisplay(text) {
-      currentAIEl.innerHTML = text.replace(/\n/g, '<br>')
-                                + '<span class="typing-cursor"></span>';
-      scrollToBottom();
-    }
+      // إرسال رسالة جديدة وبداية تدفق SSE
+      function sendMessage() {
+        const text = inputEl.value.trim();
+        if (!text) return;
+        appendMessage('user-message', text);
+        inputEl.value = '';
+        startStream(text);
+      }
 
-    function finalizeAI(finalText) {
-      const cleaned = finalText.replace(/\s*done\s*$/i, '');
-      currentAIEl.innerHTML = cleaned.replace(/\n/g, '<br>');
-      currentAIEl = null;
-    }
+      // بدء بث SSE لرسائل المساعد
+      function startStream(userText) {
+        const aiEl = appendMessage('ai-message', '');
+        let currentText = '';
+        const pending = [];
+        let animating = false;
 
-    function showError(msg) {
-      appendMessage('error-message', `خطأ: ${msg}`);
-    }
+        fetch('/api/create-messages', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ threadId, userId, message: userText })
+        })
+                .then(res => {
+                  const reader = res.body.getReader();
+                  const decoder = new TextDecoder();
+                  let buf = '';
 
-    function endSession() {
-      fetch('/api/end-session', { method: 'POST' })
-        .then(res => res.json())
-        .then(data => appendMessage('system-message', data.message))
-        .catch(err => showError(err.message));
-    }
+                  return (async () => {
+                    while (true) {
+                      const { done, value } = await reader.read();
+                      if (done) break;
+                      buf += decoder.decode(value, { stream: true });
+                      const parts = buf.split('\n\n');
+                      buf = parts.pop() || '';
+
+                      parts.forEach(part => {
+                        if (part.startsWith('data: ')) {
+                          const { token } = JSON.parse(part.slice(6));
+                          if (token?.toLowerCase() !== 'done') pending.push(token);
+                        }
+                      });
+
+                      if (!animating) {
+                        animating = true;
+                        (function typeNext() {
+                          if (!pending.length) {
+                            aiEl.innerHTML = currentText.replace(/\s*done\s*$/i, '').replace(/\n/g, '<br>');
+                            return;
+                          }
+                          currentText += pending.shift();
+                          aiEl.innerHTML = currentText.replace(/\n/g, '<br>')
+                                  + '<span class="typing-cursor"></span>';
+                          messagesEl.scrollTop = messagesEl.scrollHeight;
+                          setTimeout(typeNext, 100);
+                        })();
+                      }
+                    }
+                  })();
+                })
+                .catch(err => appendMessage('error-message', 'خطأ: ' + err.message));
+      }
+
+      // إنهاء الجلسة
+      function endSession() {
+        fetch('/api/end-session', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => appendMessage('system-message', data.message))
+                .catch(err => appendMessage('error-message', 'خطأ: ' + err.message));
+      }
+    })();
   </script>
 </body>
 </html>

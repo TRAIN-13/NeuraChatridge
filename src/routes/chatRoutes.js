@@ -1,23 +1,26 @@
 import express from 'express';
-//import { chatStream, endSession } from '../controllers/chatController.js';
-import { createThread }          from '../controllers/threadController.js';
-import { addMessage }            from '../controllers/messageController.js';
-
 import { requestTracker } from '../middleware/requestTracker.js';
 import { errorLogger, wrapAsync } from '../middleware/errorHandler.js';
 
+import { createThread }  from '../controllers/threadController.js';
+import { addMessage }    from '../controllers/messageController.js';
+import { fetchMessages } from '../controllers/chatController.js';
+
 const router = express.Router();
 
-// 1) middleware tracker
+// 1) تعقب الطلبات
 router.use(requestTracker);
 
-// 2) path with wrapAsync
-//router.post('/chat-stream',    wrapAsync(chatStream));
-//router.post('/end-session',    wrapAsync(endSession));
-router.post('/create-threads', wrapAsync(createThread));
-router.post('/create-messages',wrapAsync(addMessage));
+// 2) تعريف المسارات
+router.post('/create-threads',  wrapAsync(createThread));
+router.post('/create-messages', wrapAsync(addMessage));
+router.post('/fetch-messages', wrapAsync(fetchMessages));
 
-// 3) أخيرًا ميدلوير تسجيل الأخطاء
+// في src/routes/chatRoutes.js
+router.get('/ping', (req, res) => res.send('pong'));
+
+
+// 3) تسجيل الأخطاء
 router.use(errorLogger);
 
 export default router;
