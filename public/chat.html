@@ -1,44 +1,157 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8" />
-  <title>Realtime ChatGPT</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat app with Image Support</title>
   <style>
-    .chat-container {
-      max-width: 800px;
-      margin: 20px auto;
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    body {
+      background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
+      color: #333;
+      min-height: 100vh;
       padding: 20px;
-      border: 1px solid #ddd;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
-    #messages {
-      height: 400px;
+    
+    .chat-container {
+      max-width: 1000px;
+      width: 100%;
+      background-color: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .header {
+      background: linear-gradient(to right, #3498db, #2c3e50);
+      color: white;
+      padding: 20px;
+      text-align: center;
+      border-bottom: 1px solid #2980b9;
+    }
+    
+    .header h1 {
+      font-size: 2.2rem;
+      margin-bottom: 10px;
+    }
+    
+    .header p {
+      font-size: 1.1rem;
+      opacity: 0.9;
+    }
+    
+    .chat-area {
+      display: flex;
+      height: 600px;
+    }
+    
+    .info-panel {
+      width: 250px;
+      background-color: #f8f9fa;
+      padding: 20px;
+      border-right: 1px solid #eee;
       overflow-y: auto;
-      margin-bottom: 20px;
-      padding: 10px;
-      border: 1px solid #eee;
-      background: #f9f9f9;
     }
+    
+    .info-panel h2 {
+      color: #2c3e50;
+      margin-bottom: 15px;
+      font-size: 1.4rem;
+      border-bottom: 2px solid #3498db;
+      padding-bottom: 8px;
+    }
+    
+    .info-box {
+      background: white;
+      border-radius: 10px;
+      padding: 15px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    
+    .info-item {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .info-item .label {
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #3498db;
+    }
+    
+    .info-item .value {
+      flex: 1;
+      background: #f1f8ff;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      font-size: 0.95rem;
+    }
+    
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      background-color: #f9fbfd;
+    }
+    
     .message {
-      margin: 10px 0;
-      padding: 10px;
-      border-radius: 5px;
+      margin: 12px 0;
+      padding: 15px;
+      border-radius: 12px;
       clear: both;
       position: relative;
+      max-width: 80%;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      animation: fadeIn 0.3s ease-out;
+      word-wrap: break-word;
+      line-height: 1.6;
     }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
     .user-message {
-      background: #e3f2fd;
-      margin-left: 20%;
-      text-align: left;
+      background: linear-gradient(to left, #e3f2fd, #bbdefb);
+      align-self: flex-start;
+      border-bottom-left-radius: 0;
     }
+    
     .ai-message {
-      background: #fff3e0;
-      margin-right: 20%;
-      text-align: right;
+      background: linear-gradient(to right, #fff3e0, #ffe0b2);
+      align-self: flex-end;
+      border-bottom-right-radius: 0;
     }
+    
     .system-message {
-      background: #d6f5d6;
+      background: linear-gradient(to right, #d6f5d6, #c5e1a5);
       text-align: center;
+      align-self: center;
+      max-width: 90%;
     }
+    
+    .error-message {
+      background: linear-gradient(to right, #ffcccc, #ff9e9e) !important;
+      align-self: center;
+    }
+    
     .typing-cursor {
       display: inline-block;
       width: 8px;
@@ -46,46 +159,268 @@
       background: #3498db;
       animation: blink 1s infinite;
       vertical-align: bottom;
+      margin-left: 3px;
     }
+    
     @keyframes blink {
       0%, 100% { opacity: 1; }
       50% { opacity: 0; }
     }
+    
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+      color: #555;
+      border-bottom: 1px dashed rgba(0,0,0,0.1);
+      padding-bottom: 5px;
+    }
+    
+    .input-area {
+      padding: 20px;
+      background-color: #f0f7ff;
+      border-top: 1px solid #ddd;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    
     .input-group {
       display: flex;
       gap: 10px;
     }
+    
     #message-input {
       flex: 1;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      font-size: 1rem;
+      padding: 15px;
+      border: 2px solid #3498db;
+      border-radius: 12px;
+      font-size: 1.1rem;
+      transition: border-color 0.3s;
+      min-height: 60px;
+      resize: vertical;
     }
+    
+    #message-input:focus {
+      border-color: #e74c3c;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.2);
+    }
+    
+    .buttons {
+      display: flex;
+      gap: 10px;
+    }
+    
     button {
-      padding: 10px 20px;
-      background: #3498db;
+      padding: 12px 25px;
+      background: linear-gradient(to right, #3498db, #2980b9);
       color: white;
       border: none;
-      border-radius: 5px;
+      border-radius: 12px;
       cursor: pointer;
-      font-size: 1rem;
+      font-size: 1.05rem;
+      font-weight: bold;
+      transition: all 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
     }
+    
     button:hover {
-      background: #2980b9;
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
     }
-    .error-message {
-      background: #ffcccc !important;
+    
+    button:active {
+      transform: translateY(1px);
+    }
+    
+    #sendBtn {
+      background: linear-gradient(to right, #2ecc71, #27ae60);
+      flex: 1;
+    }
+    
+    #sendBtn:hover {
+      background: linear-gradient(to right, #27ae60, #219653);
+    }
+    
+    #endSessionBtn {
+      background: linear-gradient(to right, #e74c3c, #c0392b);
+    }
+    
+    #endSessionBtn:hover {
+      background: linear-gradient(to right, #c0392b, #a23526);
+    }
+    
+    .instructions {
+      background: white;
+      border-radius: 10px;
+      padding: 15px;
+      margin-top: 10px;
+      font-size: 0.95rem;
+      color: #555;
+    }
+    
+    .instructions h3 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+    
+    .instructions ul {
+      padding-left: 20px;
+    }
+    
+    .instructions li {
+      margin-bottom: 8px;
+    }
+    
+    .timestamp {
+      font-size: 0.75rem;
+      opacity: 0.7;
+      margin-top: 5px;
+      text-align: left;
+    }
+    
+    #fetchMessagesBtn {
+      width: 100%;
+      background: linear-gradient(to right, #9b59b6, #8e44ad);
+      margin-top: 10px;
+    }
+    
+    #fetchMessagesBtn:hover {
+      background: linear-gradient(to right, #8e44ad, #7d3c98);
+    }
+    
+    .action-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    
+    .message-image {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 8px;
+      margin-top: 10px;
+      display: block;
+      object-fit: contain;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .message-content {
+      margin-bottom: 8px;
+    }
+    
+    /* إضافة ظل خفيف للرسائل للتمييز البصري */
+    .user-message {
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
+    
+    .ai-message {
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
+    
+    @media (max-width: 768px) {
+      .chat-area {
+        flex-direction: column;
+        height: auto;
+      }
+      
+      .info-panel {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid #eee;
+      }
+      
+      .message {
+        max-width: 90%;
+      }
+      
+      .buttons {
+        flex-direction: column;
+      }
     }
   </style>
 </head>
 <body>
   <div class="chat-container">
-    <div id="messages"></div>
-    <div class="input-group">
-      <input type="text" id="message-input" placeholder="اكتب رسالتك هنا..." />
-      <button id="sendBtn">إرسال</button>
-      <button id="endSessionBtn">إنهاء الجلسة</button>
+    <div class="header">
+      <h1>Chat application with Improved Message Display</h1>
+      <p>Conversation with proper message grouping</p>
+    </div>
+    
+    <div class="chat-area">
+      <div class="info-panel">
+        <h2>Session information</h2>
+        
+        <div class="info-box">
+          <div class="info-item">
+            <span class="label">Thread ID:</span>
+            <input type="text" id="threadIdInput" class="value" placeholder="Enter Thread Id">
+          </div>
+          <div class="info-item">
+            <span class="label">User ID:</span>
+            <input type="text" id="userIdInput" class="value" placeholder="Enter User Id">
+          </div>
+          
+          <div class="action-buttons">
+            <button id="fetchMessagesBtn">
+              <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/>
+                <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/>
+              </svg>
+              Fetch Messages
+            </button>
+          </div>
+          
+          <div class="info-item">
+            <span class="label">Session status</span>
+            <span class="value" id="sessionStatus">Inactive</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Messages Count</span>
+            <span class="value" id="messageCount">0</span>
+          </div>
+        </div>
+        
+        <div class="info-box">
+          <h3>App Information</h3>
+          <p>This application retrieves messages from Firestore, sorts them by each message’s exact timestamp, and displays them in a neat, organized format.</p>
+        </div>
+        
+      </div>
+      
+      <div id="messages">
+        <div class="message system-message">
+          <div class="message-header">
+            <span>Welcome to the smart conversation app</span>
+          </div>
+          <p>Please enter the Thread ID and User ID and then click the "Fetch Messages" button.</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="input-area">
+      <textarea id="message-input" placeholder="Write your message here..."></textarea>
+      <div class="buttons">
+        <button id="sendBtn">
+          <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M15.964.686a.5.5 0 0 0-.65-.65L.767 5.855H.766l-.452.18a.5.5 0 0 0-.082.887l.41.26.001.002 4.995 3.178 3.178 4.995.002.002.26.41a.5.5 0 0 0 .886-.083l6-15Zm-1.833 1.89L6.637 10.07l-.215-.338a.5.5 0 0 0-.154-.154l-.338-.215 7.494-7.494 1.178-.471-.47 1.178Z"/>
+          </svg>
+          Send
+        </button>
+        <button id="endSessionBtn">
+          <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M7.5 1v7h1V1h-1z"/>
+            <path d="M3 8.812a4.999 4.999 0 0 1 2.578-4.375l-.485-.874A6 6 0 1 0 11 3.616l-.501.865A5 5 0 1 1 3 8.812z"/>
+          </svg>
+          End the session
+        </button>
+      </div>
     </div>
   </div>
 
@@ -95,143 +430,293 @@
       const inputEl    = document.getElementById('message-input');
       const sendBtn    = document.getElementById('sendBtn');
       const endBtn     = document.getElementById('endSessionBtn');
-
-      // 1. استخراج threadId و userId من الـ URL أو بالسؤال
-      const params   = new URLSearchParams(window.location.search);
-      const threadId = params.get('threadId') || prompt('أدخل رقم الثريد (threadId):');
-      const userId   = params.get('userId')   || prompt('أدخل رقم المستخدم (userId):');
-
-      // 2. عند التحميل: جلب وعرض التاريخ
-      document.addEventListener('DOMContentLoaded', fetchHistory);
-
-      // 3. إعداد مستمعي الأحداث
+      const fetchMessagesBtn = document.getElementById('fetchMessagesBtn');
+      const sessionStatus = document.getElementById('sessionStatus');
+      const messageCount = document.getElementById('messageCount');
+      const threadIdInput = document.getElementById('threadIdInput');
+      const userIdInput = document.getElementById('userIdInput');
+      
+      // Variables to store session IDs
+      let currentThreadId = '';
+      let currentUserId = '';
+      
+      // Event listeners
+      fetchMessagesBtn.addEventListener('click', fetchHistory);
       sendBtn.addEventListener('click', sendMessage);
-      inputEl.addEventListener('keypress', e => {
-        if (e.key === 'Enter') sendMessage();
+      inputEl.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
       });
       endBtn.addEventListener('click', endSession);
 
-      // جلب الرسائل من السيرفر
+      // Function to fetch messages from Firestore
       async function fetchHistory() {
+        // Get IDs from input fields
+        currentThreadId = threadIdInput.value.trim();
+        currentUserId = userIdInput.value.trim();
+        
+        // Validate inputs
+        if (!currentThreadId || !currentUserId) {
+          appendMessage('error-message', 'Please enter both Thread ID and User ID');
+          return;
+        }
+        
         try {
+          messagesEl.innerHTML = '';
+          appendMessage('system-message', 'Loading messages from Firestore...');
+          
+          // Fetch messages from Firestore
           const res = await fetch('/api/fetch-messages', {
-            method:  'POST',
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ threadId, userId })
+            body: JSON.stringify({ 
+              threadId: currentThreadId, 
+              userId: currentUserId 
+            })
           });
+          
           const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'فشل جلب التاريخ');
+          if (!res.ok) throw new Error(data.error || 'Failed to load messages');
+          
           const messages = Array.isArray(data.messages) ? data.messages : [];
+          
+          // Sort messages by appropriate timestamp
+          messages.sort((a, b) => {
+            const t1 = a.author === 'user' ? a.createdAt : a.receivedAt;
+            const t2 = b.author === 'user' ? b.createdAt : b.receivedAt;
+            return t1 - t2;
+          });
 
-          // 4. فرز الرسائل بناءً على receivedAt
-          messages.sort((a, b) => a.receivedAt - b.receivedAt);
-
-          // 5. عرض الرسائل بالتسلسل (يوزر → مساعد → يوزر → …)
-          displayMessages(messages);
+          // Update message count
+          messageCount.textContent = messages.length;
+          
+          // Update session status
+          sessionStatus.textContent = 'Active';
+          sessionStatus.style.color = '#27ae60';
+          
+          displayMessagesInOrder(messages);
         } catch (err) {
-          appendMessage('error-message', 'خطأ في تحميل الرسائل: ' + err.message);
+          appendMessage('error-message', 'Error loading messages: ' + err.message);
         }
       }
 
-      // عرض مصفوفة الرسائل مع تجميع رسائل المساعد
-      function displayMessages(messages) {
+      // دالة جديدة لعرض الرسائل بشكل صحيح
+      function displayMessagesInOrder(messages) {
         messagesEl.innerHTML = '';
-        let bufferAI = [];
-
-        messages.forEach(msg => {
-          if (msg.author === 'user') {
-            if (bufferAI.length) {
-              appendMessage('ai-message', bufferAI.join(' '));
-              bufferAI = [];
+        
+        if (messages.length === 0) {
+          appendMessage('system-message', 'No messages found in this session.');
+          return;
+        }
+        
+        // متغير لتتبع آخر مؤلف
+        let lastAuthor = null;
+        
+        for (const msg of messages) {
+          // إذا كان المؤلف الحالي هو نفسه السابق، ندمج مع الرسالة الأخيرة
+          if (lastAuthor === msg.author) {
+            const lastMessage = messagesEl.lastChild;
+            const contentDiv = lastMessage.querySelector('.message-content');
+            
+            if (contentDiv) {
+              // تحديث محتوى الرسالة
+              contentDiv.textContent += msg.content;
+              
+              // تحديث الصورة إذا كانت موجودة
+              if (msg.imageUrl) {
+                const existingImg = lastMessage.querySelector('.message-image');
+                if (!existingImg) {
+                  const img = document.createElement('img');
+                  img.src = msg.imageUrl;
+                  img.alt = "Uploaded image";
+                  img.className = "message-image";
+                  lastMessage.appendChild(img);
+                }
+              }
             }
-            appendMessage('user-message', msg.content);
           } else {
-            bufferAI.push(msg.content);
+            // عرض رسالة جديدة
+            appendMessage(
+              msg.author === 'user' ? 'user-message' : 'ai-message',
+              msg.content,
+              msg.author === 'user' ? msg.createdAt : msg.receivedAt,
+              msg.imageUrl
+            );
+            
+            // تحديث آخر مؤلف
+            lastAuthor = msg.author;
           }
-        });
-
-        if (bufferAI.length) {
-          appendMessage('ai-message', bufferAI.join(' '));
         }
       }
 
-      // إضافة رسالة إلى الـ DOM
-      function appendMessage(cls, text) {
+      function appendMessage(cls, text, timestamp = null, imageUrl = null) {
         const div = document.createElement('div');
         div.className = `message ${cls}`;
-        div.innerHTML = text.replace(/\n/g, '<br>');
+        
+        // Add message header with time
+        let headerContent = '';
+        if (cls === 'user-message') {
+          headerContent = '<span>You</span>';
+        } else if (cls === 'ai-message') {
+          headerContent = '<span>AI</span>';
+        } else {
+          headerContent = '<span>System</span>';
+        }
+        
+        if (timestamp) {
+          const date = new Date(timestamp);
+          const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          headerContent += `<span>${timeStr}</span>`;
+        }
+        
+        // Build message content
+        let contentHtml = '';
+        if (text) {
+          contentHtml += `<div class="message-content">${text}</div>`;
+        }
+        
+        // Add image if exists
+        if (imageUrl) {
+          contentHtml += `<img src="${imageUrl}" alt="Uploaded image" class="message-image">`;
+        }
+        
+        div.innerHTML = `
+          <div class="message-header">${headerContent}</div>
+          ${contentHtml}
+        `;
+        
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         return div;
       }
 
-      // إرسال رسالة جديدة وبداية تدفق SSE
       function sendMessage() {
+        // Check if session is active
+        if (!currentThreadId || !currentUserId) {
+          appendMessage('error-message', 'Please fetch messages first using valid IDs');
+          return;
+        }
+        
         const text = inputEl.value.trim();
         if (!text) return;
-        appendMessage('user-message', text);
+        
+        // Add user message immediately
+        appendMessage('user-message', text, Date.now());
         inputEl.value = '';
+        
+        // Send message to Firestore
         startStream(text);
       }
 
-      // بدء بث SSE لرسائل المساعد
+      // Start streaming assistant response
       function startStream(userText) {
-        const aiEl = appendMessage('ai-message', '');
-        let currentText = '';
-        const pending = [];
-        let animating = false;
-
+        const aiEl = appendMessage('ai-message', '', Date.now());
+        const contentDiv = aiEl.querySelector('.message-content');
+        contentDiv.innerHTML = '<span class="typing-cursor"></span>';
+        
+        let fullResponse = '';
+        
         fetch('/api/create-messages', {
-          method:  'POST',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ threadId, userId, message: userText })
+          body: JSON.stringify({ 
+            threadId: currentThreadId, 
+            userId: currentUserId, 
+            message: userText 
+          })
         })
-                .then(res => {
-                  const reader = res.body.getReader();
-                  const decoder = new TextDecoder();
-                  let buf = '';
-
-                  return (async () => {
-                    while (true) {
-                      const { done, value } = await reader.read();
-                      if (done) break;
-                      buf += decoder.decode(value, { stream: true });
-                      const parts = buf.split('\n\n');
-                      buf = parts.pop() || '';
-
-                      parts.forEach(part => {
-                        if (part.startsWith('data: ')) {
-                          const { token } = JSON.parse(part.slice(6));
-                          if (token?.toLowerCase() !== 'done') pending.push(token);
-                        }
-                      });
-
-                      if (!animating) {
-                        animating = true;
-                        (function typeNext() {
-                          if (!pending.length) {
-                            aiEl.innerHTML = currentText.replace(/\s*done\s*$/i, '').replace(/\n/g, '<br>');
-                            return;
-                          }
-                          currentText += pending.shift();
-                          aiEl.innerHTML = currentText.replace(/\n/g, '<br>')
-                                  + '<span class="typing-cursor"></span>';
-                          messagesEl.scrollTop = messagesEl.scrollHeight;
-                          setTimeout(typeNext, 100);
-                        })();
-                      }
-                    }
-                  })();
-                })
-                .catch(err => appendMessage('error-message', 'خطأ: ' + err.message));
+        .then(res => {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          
+          return new ReadableStream({
+            start(controller) {
+              function push() {
+                reader.read().then(({ done, value }) => {
+                  if (done) {
+                    controller.close();
+                    return;
+                  }
+                  controller.enqueue(value);
+                  push();
+                });
+              }
+              push();
+            }
+          });
+        })
+        .then(stream => {
+          const reader = stream.getReader();
+          
+          function read() {
+            reader.read().then(({ done, value }) => {
+              if (done) {
+                // Remove typing cursor when done
+                contentDiv.innerHTML = fullResponse;
+                
+                // Update message count after adding new message
+                const currentCount = parseInt(messageCount.textContent) || 0;
+                messageCount.textContent = currentCount + 2; // user + assistant
+                
+                return;
+              }
+              
+              // Convert value to text
+              const textChunk = decoder.decode(value, { stream: true });
+              
+              // Collect tokens as they are
+              fullResponse += textChunk;
+              
+              // Display tokens with typing cursor
+              contentDiv.innerHTML = fullResponse + '<span class="typing-cursor"></span>';
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+              
+              // Continue reading
+              read();
+            });
+          }
+          
+          read();
+        })
+        .catch(err => {
+          appendMessage('error-message', 'Error: ' + err.message);
+        });
       }
 
-      // إنهاء الجلسة
       function endSession() {
-        fetch('/api/end-session', { method: 'POST' })
-                .then(res => res.json())
-                .then(data => appendMessage('system-message', data.message))
-                .catch(err => appendMessage('error-message', 'خطأ: ' + err.message));
+        // Check if session is active
+        if (!currentThreadId || !currentUserId) {
+          appendMessage('error-message', 'No active session to end');
+          return;
+        }
+        
+        appendMessage('system-message', 'Ending session...');
+        
+        // Send request to end session to Firestore
+        fetch('/api/end-session', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            threadId: currentThreadId, 
+            userId: currentUserId 
+          })
+        })
+        .then(res => res.json())
+        .then(data => {
+          appendMessage('system-message', data.message || 'Session ended successfully');
+          sessionStatus.textContent = 'Ended';
+          sessionStatus.style.color = '#e74c3c';
+          
+          // Disable send button after ending session
+          sendBtn.disabled = true;
+          inputEl.disabled = true;
+          endBtn.disabled = true;
+        })
+        .catch(err => {
+          appendMessage('error-message', 'Error ending session: ' + err.message);
+        });
       }
     })();
   </script>
