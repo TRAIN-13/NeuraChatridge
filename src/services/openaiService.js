@@ -30,34 +30,34 @@ export async function createAIThread() {
  * @param {string} threadId
  * @param {string|object[]} content - A single text or an array of { role, content }
  */
-export async function aiAddMessage(threadId, content) {
-  if (!threadId) {
-    throw new Error('threadId is required for addMessage');
-  }
-  if (!content) {
-    throw new Error('No content provided to addMessage');
-  }
 
-  // If an array of messages is passed, send each one
-  if (Array.isArray(content)) {
-    for (const msg of content) {
-      if (!msg.role || !msg.content) {
-        throw new Error("Each message must have a 'role' and 'content'");
-      }
-      DEBUG && console.debug(`➕ Adding message (${msg.role}) to thread ${threadId}`);
-      await openai.beta.threads.messages.create(threadId, {
-        role: msg.role,
-        content: msg.content,
-      });
-    }
-    return;
-  }
+/**
+ * @typedef {Object} PayloadSegment
+ * @property {'text'|'image_url'} type
+ * @property {string} [text]               - النصّ (للنصّ فقط)
+ * @property {{ url: string }} [image_url] - رابط الصورة (لـ image_url فقط)
+ */
 
-  // Single message (user text)
-  DEBUG && console.debug(`➕ Adding single user message to thread ${threadId}`);
+/**
+ * @typedef {Object} AssistantPayload
+ * @property {'user'|'assistant'} role
+ * @property {PayloadSegment[]} content
+ */
+
+/**
+ * @param {string} threadId
+ * @param {AssistantPayload} payload
+ */
+export async function aiAddMessage(threadId, payload) {
+  if (!threadId) throw new Error('threadId is required for addMessage');
+  if (!payload || !Array.isArray(payload.content) || !payload.role) {
+    throw new Error('Invalid AssistantPayload: must include role and content array');
+  }
+  DEBUG && console.debug(`➕ Sending ${payload.role} payload to thread ${threadId}`, payload);
+  // مرّر الـ payload كما هو إلى OpenAI Threads API
   return await openai.beta.threads.messages.create(threadId, {
-    role: 'user',
-    content,
+    role: payload.role,
+    content: payload.content
   });
 }
 

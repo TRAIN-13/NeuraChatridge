@@ -20,12 +20,14 @@ import { initSSE, sendSSEMetaThread } from '../utils/sseHelpers.js';
 /**
  * POST /api/threads
  */
+
 export async function createThread(req, res, next) {
   const { requestId } = req;
   const startTime = Date.now();
 
+  // 1) التحقق وإنشاء الثريد وغرف الميتاداتا ومعالجة الرسالة الابتدائية
+  let threadId, userId, isGuest;
   try {
-    // 1. استخراج المدخلات والتحقق
     const { user_Id: rawUserId, message } = req.body;
     if (!message || !message.trim()) {
       return res.status(400).json({
@@ -35,30 +37,20 @@ export async function createThread(req, res, next) {
       });
     }
 
-    // 2. تحديد userId
-    const isGuest = !rawUserId;
-                                                                // TODO add isGuest to firestore
-    const userId = isGuest
+    isGuest = !rawUserId;
+    userId = isGuest
       ? generateGuestUserId()
       : validateUserId(rawUserId);
 
     logger.info('Creating thread', { requestId, userId, isGuest });
 
-    // 3. إنشاء ثريد في OpenAI وFirestore
-    const threadId = await createAIThread();
-    await createFSThread(userId, threadId);
+    threadId = await createAIThread();
+    await createFSThread(userId, threadId, isGuest);
 
     logger.debug('External services initialized', { requestId, threadId });
 
-    initSSE(res);
-    sendSSEMetaThread(res, threadId, userId, isGuest /*, يمكنك تمرير array مختلفة بدل [{}] */);
-
-    // 4. معالجة الرسالة الابتدائية
+    // معالجة الرسالة الابتدائية قبل إرسال الهيدرز
     await handleInitialMessage(threadId, message.trim(), requestId);
-
-    // 5. بدء تدفق SSE
-    runThreadStream(threadId, req, res);
-
   } catch (err) {
     logger.error('Thread creation failed', {
       requestId,
@@ -66,10 +58,14 @@ export async function createThread(req, res, next) {
       stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
 
-    // إرسال خطأ معقم للعميل
     const safeError = sanitizeError(err, req);
     return res.status(500).json({ success: false, error: safeError, requestId });
   } finally {
     logOperationSuccess(startTime, requestId);
   }
+
+  // 2) بعد تأكد نجاح كل الخطوات السابقة؛ افتح قناة الـ SSE ولا تُدخل هذا الجزء في كتلة الخطأ
+  initSSE(res);
+  sendSSEMetaThread(res, threadId, userId, isGuest);
+  return runThreadStream(threadId, req, res);
 }

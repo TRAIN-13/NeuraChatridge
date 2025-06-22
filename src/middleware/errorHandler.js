@@ -7,6 +7,11 @@ import { sanitizeError } from '../utils/errorUtils.js';
  * Detects error type, sets appropriate HTTP status, and returns a safe error payload.
  */
 export function errorLogger(err, req, res, next) {
+  // إذا أُرسلت الهيدرز بالفعل (SSE أو غيره)، تخلَّ عن محاولة إعادة الإرسال
+  if (res.headersSent) {
+    // يمكننا التخلص من الخطأ أو تمريره للميدلوير الافتراضي
+    return next(err);
+  }
   // Assign HTTP status code based on error name/type
   if (err.name === 'ValidationError') {
     // 413 for payload too large, 400 for other validations

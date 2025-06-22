@@ -37,9 +37,20 @@ export async function addMessage(req, res) {
     // 4) حفظ رسالة المستخدم وإرسالها للمساعد وتحديث طابع الثريد في الخلفية
     await (async () => {
       try {
+        // 1) بناء مصفوفة content
+        const segments = [
+          { type: 'text', text: message }
+        ];
+        if (req.body.imageUrl) {
+          segments.push({
+            type: 'image_url',
+            image_url: { url: req.body.imageUrl }
+          });
+        }
+        const userPayload = { role: 'user', content: segments };
         await Promise.all([
-          addMessageInstant(threadId, 'user', message),
-          aiAddMessage(threadId, message),
+          addMessageInstant(threadId, 'user', message, req.body.imageUrl),
+          aiAddMessage(threadId, userPayload),
           updateThreadTimestamp(threadId)
         ]);
         logger.debug('Message processing completed', {

@@ -36,18 +36,18 @@ export function validateUserId(userId) {
  * @param {string} requestId
  */
 export async function handleInitialMessage(threadId, message, requestId) {
+  const payload = {
+    role: 'user',
+    content: [{ type: 'text', text: message }]
+  };
   try {
     await Promise.all([
-      aiAddMessage(threadId, message),
+      aiAddMessage(threadId, payload),
       bufferMessage(threadId, 'user', message),
       updateThreadTimestamp(threadId)
     ]);
-    logger.info('Initial message processed', {
-      requestId,
-      threadId,
-      messageLength: message.length
-    });
-  } catch (err) {
+    logger.info('Initial message processed', { requestId, threadId });
+  }  catch (err) {
     logger.error('Initial message handling failed', {
       requestId,
       threadId,

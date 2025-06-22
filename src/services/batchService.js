@@ -1,5 +1,7 @@
 // src/services/batchService.js
 import logger from '../utils/logger.js';
+import { writeBatch, doc, collection } from 'firebase/firestore';
+import { formatTimestamp } from '../utils/dateUtils.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**

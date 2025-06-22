@@ -71,25 +71,24 @@ async function retrieveAndFormatMessages(threadId) {
     return snapshot.docs
         .map(docSnap => mapDocToMessage(docSnap.data()))
         .sort((a, b) => a.receivedAt - b.receivedAt);
-}
+ }
 
 /**
  * يحول كائن Firestore إلى نموذج رسالة جاهز للإرسال
  */
 function mapDocToMessage(data) {
-    const contentRaw = data.content;
-    const content = typeof contentRaw === 'object'
-        ? contentRaw.content ?? ''
-        : contentRaw ?? '';
+  // نفترض أن البيانات في Firestore تحتوي على الحقول الجديدة بالفعل:
+  // { seqId, author, content: { text, imageUrl? }, createdAt, receivedAt }
+  const ts = data.receivedAt;
+  const receivedAt = (ts && typeof ts.toMillis === 'function')
+    ? ts.toMillis()
+    : (typeof ts === 'number' ? ts : Date.now());
 
-    const ts = data.receivedAt;
-    const receivedAt = (ts && typeof ts.toMillis === 'function')
-        ? ts.toMillis()
-        : (typeof ts === 'number' ? ts : Date.now());
-
-    return {
-        author: data.author ?? 'assistant',
-        content,
-        receivedAt
-    };
+  return {
+    seqId:      data.seqId,
+    author:     data.author ?? 'assistant',
+    content:    { text: data.content.text, imageUrl: data.content.imageUrl ?? null },
+    createdAt:  data.createdAt,
+    receivedAt
+  };
 }

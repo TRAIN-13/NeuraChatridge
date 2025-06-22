@@ -1,5 +1,5 @@
 import { db } from "../utils/firebase.js";
-import { doc, collection, addDoc, getDocs, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, collection, getDocs, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 
 /**
  * Create (or update) a thread document in Firestore under collection `threads`.
@@ -7,14 +7,25 @@ import { doc, collection, addDoc, getDocs, setDoc, updateDoc, serverTimestamp } 
  * @param {string} threadId - ID of the thread to create or update.
  * @returns {Promise<void>} - Resolves when the document write completes.
  */
-export async function createFSThread(userId, threadId) {
+ /**
+  * @param {string|null} userId
+  * @param {string} threadId
+  * @param {boolean} isGuest
+  */
+export async function createFSThread(userId, threadId, isGuest) {
+
   const threadRef = doc(db, "threads", threadId);
   const data = {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    isGuest
   };
   if (userId) data.userId = userId;
+  
   await setDoc(threadRef, data);
+  
+  const metaRef = doc(db, "threads", threadId, "metadata", "counter");
+  await setDoc(metaRef, { lastSeqId: 0 });
 }
 
 /**
