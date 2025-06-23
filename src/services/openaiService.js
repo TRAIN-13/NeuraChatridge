@@ -53,8 +53,14 @@ export async function aiAddMessage(threadId, payload) {
   if (!payload || !Array.isArray(payload.content) || !payload.role) {
     throw new Error('Invalid AssistantPayload: must include role and content array');
   }
-  DEBUG && console.debug(`➕ Sending ${payload.role} payload to thread ${threadId}`, payload);
-  // مرّر الـ payload كما هو إلى OpenAI Threads API
+  
+  // تسجيل تفاصيل الرسالة
+  const hasImage = payload.content.some(item => item.type === 'image_url');
+  DEBUG && console.debug(`➕ Sending ${payload.role} payload to thread ${threadId}`, {
+    textLength: payload.content.find(item => item.type === 'text')?.text?.length || 0,
+    hasImage
+  });
+
   return await openai.beta.threads.messages.create(threadId, {
     role: payload.role,
     content: payload.content

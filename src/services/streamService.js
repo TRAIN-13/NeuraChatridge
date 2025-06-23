@@ -14,11 +14,8 @@ export function runThreadStream(threadId, req, res) {
  const stream = openaiStream(threadId, {
    onTextDelta: chunk => {
      try {
-       // 1) احصل على الطابع الزمني المطلق (ms since Unix epoch)
-       const timestampMs = Date.now();
-
-       // 3) خزّن في Firestore buffer مع النص والطابع الزمني
-       bufferMessage(threadId, 'assistant', chunk, timestampMs);
+       // 1) خزّن في Firestore buffer مع النص والطابع الزمني
+       bufferMessage(threadId, 'assistant', chunk);
      } catch (err) {
        console.error('Buffer error (ignored):', err);
      }

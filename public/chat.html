@@ -482,12 +482,8 @@
           
           const messages = Array.isArray(data.messages) ? data.messages : [];
           
-          // Sort messages by appropriate timestamp
-          messages.sort((a, b) => {
-            const t1 = a.author === 'user' ? a.createdAt : a.receivedAt;
-            const t2 = b.author === 'user' ? b.createdAt : b.receivedAt;
-            return t1 - t2;
-          });
+          // Sort messages by seqId
+          messages.sort((a, b) => a.seqId - b.seqId);
 
           // Update message count
           messageCount.textContent = messages.length;
@@ -502,7 +498,7 @@
         }
       }
 
-      // دالة جديدة لعرض الرسائل بشكل صحيح
+      // دالة جديدة لعرض الرسائل بشكل صحيح مع تجميع رسائل المساعد
       function displayMessagesInOrder(messages) {
         messagesEl.innerHTML = '';
         
@@ -511,43 +507,52 @@
           return;
         }
         
-        // متغير لتتبع آخر مؤلف
+        // تجميع رسائل المساعد بين رسائل المستخدم
+        let currentAIMessages = [];
         let lastAuthor = null;
         
         for (const msg of messages) {
-          // إذا كان المؤلف الحالي هو نفسه السابق، ندمج مع الرسالة الأخيرة
-          if (lastAuthor === msg.author) {
-            const lastMessage = messagesEl.lastChild;
-            const contentDiv = lastMessage.querySelector('.message-content');
-            
-            if (contentDiv) {
-              // تحديث محتوى الرسالة
-              contentDiv.textContent += msg.content;
-              
-              // تحديث الصورة إذا كانت موجودة
-              if (msg.imageUrl) {
-                const existingImg = lastMessage.querySelector('.message-image');
-                if (!existingImg) {
-                  const img = document.createElement('img');
-                  img.src = msg.imageUrl;
-                  img.alt = "Uploaded image";
-                  img.className = "message-image";
-                  lastMessage.appendChild(img);
-                }
-              }
-            }
+          // إذا كان المؤلف الحالي هو نفسه السابق وكان مساعدًا، نجمعه مع الرسائل الحالية
+          if (lastAuthor === 'assistant' && msg.author === 'assistant') {
+            currentAIMessages.push(msg);
           } else {
-            // عرض رسالة جديدة
-            appendMessage(
-              msg.author === 'user' ? 'user-message' : 'ai-message',
-              msg.content,
-              msg.author === 'user' ? msg.createdAt : msg.receivedAt,
-              msg.imageUrl
-            );
+            // إذا كان لدينا رسائل مساعد مجمعة، نعرضها كرسالة واحدة
+            if (currentAIMessages.length > 0) {
+              const combinedContent = currentAIMessages.map(m => m.content.text).join('');
+              const lastMessage = currentAIMessages[currentAIMessages.length - 1];
+              appendMessage(
+                'ai-message',
+                combinedContent,
+                lastMessage.receivedAt
+              );
+              currentAIMessages = [];
+            }
             
-            // تحديث آخر مؤلف
-            lastAuthor = msg.author;
+            // إذا كانت الرسالة من المستخدم أو بداية رسالة مساعد جديدة
+            if (msg.author === 'user') {
+              appendMessage(
+                'user-message',
+                msg.content.text,
+                msg.receivedAt,
+                msg.content.imageUrl
+              );
+            } else if (msg.author === 'assistant') {
+              currentAIMessages.push(msg);
+            }
           }
+          
+          lastAuthor = msg.author;
+        }
+        
+        // عرض أي رسائل مساعد متبقية في النهاية
+        if (currentAIMessages.length > 0) {
+          const combinedContent = currentAIMessages.map(m => m.content.text).join('');
+          const lastMessage = currentAIMessages[currentAIMessages.length - 1];
+          appendMessage(
+            'ai-message',
+            combinedContent,
+            lastMessage.receivedAt
+          );
         }
       }
 

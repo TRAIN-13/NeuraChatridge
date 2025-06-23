@@ -19,7 +19,9 @@ export function sanitizeError(err) {
     safeError.category = 'DATABASE';
   } else if (err.message && err.message.includes('OpenAI')) {
     safeError.category = 'AI_SERVICE';
-  }
+  } else if (err.message.includes('image_url')) {
+  safeError.category = 'IMAGE_PROCESSING';
+}
 
   return safeError;
 }
