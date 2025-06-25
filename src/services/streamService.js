@@ -1,4 +1,5 @@
 // src/services/streamService.js
+import logger from '../utils/logger.js';
 import { streamThread as openaiStream } from './openaiService.js';
 import { bufferMessage, flushAll } from './messageService.js';
 
@@ -6,51 +7,62 @@ import { bufferMessage, flushAll } from './messageService.js';
  * تبدأ ستريم SSE على ثريد مع OpenAI وترفع الحزم إلى Firestore.
  *
  * @param {string} threadId
- * @param {object} req      - كائن Express request (للوصول للـ session)
+ * @param {object} req      - كائن Express request
  * @param {object} res      - كائن Express response
  */
 export function runThreadStream(threadId, req, res) {
-  // 2. استدعاء OpenAI Stream مرة واحدة مع مجموعة الـ callbacks المعرفة هنا
- const stream = openaiStream(threadId, {
-   onTextDelta: chunk => {
-     try {
-       // 1) خزّن في Firestore buffer مع النص والطابع الزمني
-       bufferMessage(threadId, 'assistant', chunk);
-     } catch (err) {
-       console.error('Buffer error (ignored):', err);
-     }
-   },
-   onEnd: async () => {
+  logger.debug('Entering runThreadStream', { requestId: req.requestId, threadId });
+
+  const stream = openaiStream(threadId, {
+    onTextDelta: chunk => {
+      logger.debug('Received text delta from OpenAI', { requestId: req.requestId, threadId, chunk });
+      try {
+        bufferMessage(threadId, 'assistant', chunk);
+        logger.info('Buffered assistant message chunk', { requestId: req.requestId, threadId });
+      } catch (err) {
+        logger.error('Buffer error (ignored)', { requestId: req.requestId, threadId, error: err.message });
+      }
+    },
+    onEnd: async () => {
+      logger.info('OpenAI stream ended, flushing buffer', { requestId: req.requestId, threadId });
       try {
         await flushAll(threadId);
+        logger.debug('Buffer flushed on stream end', { requestId: req.requestId, threadId });
       } catch (err) {
-        console.error('Flush onEnd error:', err);
+        logger.error('Flush onEnd error', { requestId: req.requestId, threadId, error: err.message });
       }
       res.write('event: end\ndata: done\n\n');
       res.end();
+      logger.debug('SSE connection closed after end event', { requestId: req.requestId, threadId });
     },
     onError: async err => {
-      console.error('Stream error:', err);
+      logger.error('Stream error', { requestId: req.requestId, threadId, error: err.message });
       try {
         await flushAll(threadId);
+        logger.debug('Buffer flushed on stream error', { requestId: req.requestId, threadId });
       } catch (flushErr) {
-        console.error('Flush onError error:', flushErr);
+        logger.error('Flush onError error', { requestId: req.requestId, threadId, error: flushErr.message });
       }
-      // نظّف الجلسة
       delete req.session.threadId;
       res.write(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
       res.end();
+      logger.debug('SSE connection closed after error event', { requestId: req.requestId, threadId });
     }
   });
 
-  // 3. رصد قطع اتصال العميل لتنظيف الموارد فوراً
+  // رصد قطع اتصال العميل لتنظيف الموارد فوراً
   req.on('close', async () => {
-    console.log(`Client disconnected from thread ${threadId}`);
-    // إيقاف البث إن أمكن
+    logger.warn('Client disconnected prematurely', { requestId: req.requestId, threadId });
     stream.stop?.();
-    // إفراغ أي buffers متبقية
-    await flushAll(threadId);
+    try {
+      await flushAll(threadId);
+      logger.debug('Buffer flushed on client disconnect', { requestId: req.requestId, threadId });
+    } catch (err) {
+      logger.error('Flush on client disconnect error', { requestId: req.requestId, threadId, error: err.message });
+    }
     res.end();
-    // (قد لا تحتاج إلى res.end() لأن العميل قطع الاتصال بالفعل)
+    logger.debug('SSE connection ended after client disconnect', { requestId: req.requestId, threadId });
   });
+
+  return stream;
 }

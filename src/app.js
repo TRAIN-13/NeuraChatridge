@@ -1,6 +1,8 @@
 // src/app.js
-import express from 'express';
 import dotenv from 'dotenv';
+// Load environment variables from .env file
+dotenv.config();
+import express from 'express';
 import session from 'express-session';
 import path from 'path';
 
@@ -8,8 +10,7 @@ import chatRoutes from './routes/chatRoutes.js';
 import { requestTracker } from './middleware/requestTracker.js';
 import { errorLogger } from './middleware/errorHandler.js';
 
-// Load environment variables from .env file
-dotenv.config();
+
 
 const app = express();
 

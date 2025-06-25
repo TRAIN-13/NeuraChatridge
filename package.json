@@ -6,7 +6,8 @@
   "scripts": {
     "start": "nodemon --env-file=.env index.js",
     "build": "webpack",
-    "clean:cache": "rm -rf node_modules/.cache dist build"
+    "clean:cache": "rm -rf node_modules/.cache dist build",
+    "debug": "node --inspect index.js"
   },
   "keywords": [],
   "author": "",

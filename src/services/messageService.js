@@ -1,46 +1,57 @@
 // src/services/messageService.js
+import logger from '../utils/logger.js';
 import { db } from '../utils/firebase.js';
-import { collection, writeBatch, doc, addDoc, runTransaction  } from 'firebase/firestore';
+import { collection, doc, runTransaction } from 'firebase/firestore';
 import { ResilientBatcher } from './batchService.js';
 import { formatTimestamp } from '../utils/dateUtils.js';
 
 /**
- * دالة onFlush: تكتب دفعة الرسائل في Firestore مع طابع زمني مُرسل من العميل (timestampMs)
+ * Flush a batch of assistant messages into Firestore with client timestamp
  */
 async function flushAssistantMessages(threadId, messages) {
+  const context = { threadId };
+  logger.debug('flushAssistantMessages: called', { ...context, count: messages.length });
+  const startTime = Date.now();
+  
   const metaRef = doc(db, `threads/${threadId}/metadata/counter`);
   const msgsCol = collection(db, `threads/${threadId}/messages`);
 
-  await runTransaction(db, async (tx) => {
-    // اقرأ آخر seqId
-    const metaSnap = await tx.get(metaRef);
-    let lastSeq = metaSnap.exists() ? metaSnap.data().lastSeqId : 0;
+  try {
+    logger.debug('flushAssistantMessages: starting transaction', context);
+    await runTransaction(db, async (tx) => {
+      const metaSnap = await tx.get(metaRef);
+      let lastSeq = metaSnap.exists() ? metaSnap.data().lastSeqId : 0;
+      logger.debug('flushAssistantMessages: current lastSeq', { ...context, lastSeq });
 
-    // لكل رسالة في الدفعة، زِد seqId واكتبها
-    for (const { author, content, timestampMs } of messages) {
-      lastSeq += 1;
-      const createdAt = formatTimestamp(timestampMs);
-      const msg = {
-        seqId: lastSeq,
-        author,
-        content: {
-          text: content.text,
-          ...(content.imageUrl && { imageUrl: content.imageUrl })
-        },
-        createdAt,
-        receivedAt: timestampMs
-      };
-      const msgRef = doc(msgsCol);
-      tx.set(msgRef, msg);
-    }
+      for (const { author, content, timestampMs } of messages) {
+        lastSeq += 1;
+        const createdAt = formatTimestamp(timestampMs);
+        const msg = {
+          seqId: lastSeq,
+          author,
+          content: { text: content.text, ...(content.imageUrl && { imageUrl: content.imageUrl }) },
+          createdAt,
+          receivedAt: timestampMs
+        };
+        const msgRef = doc(msgsCol);
+        tx.set(msgRef, msg);
+        logger.debug('flushAssistantMessages: queued message write', { ...context, seqId: lastSeq, author });
+      }
 
-    // حدّث العداد لمرة واحدة بعد الكتابة
-    tx.set(metaRef, { lastSeqId: lastSeq }, { merge: true });
-  });
+      tx.set(metaRef, { lastSeqId: lastSeq }, { merge: true });
+      logger.debug('flushAssistantMessages: updated counter', { ...context, lastSeq });
+    });
+
+    const duration = Date.now() - startTime;
+    logger.info('flushAssistantMessages: transaction committed', { ...context, count: messages.length, duration: `${duration}ms` });
+  } catch (err) {
+    logger.error('flushAssistantMessages: transaction failed', { ...context, error: err.message });
+    throw err;
+  }
 }
 
 /**
- * Batcher لردود المساعد
+ * Batcher for assistant responses
  */
 export const assistantBatcher = new ResilientBatcher({
   batchSize:  parseInt(process.env.BATCH_SIZE       || '5',    10),
@@ -51,67 +62,64 @@ export const assistantBatcher = new ResilientBatcher({
 });
 
 /**
- * حفظ رسالة المستخدم أو المساعد فوراً في Firestore بالهيكل الجديد:
- * {
- *   author: 'user'|'assistant',
- *   content: { text, imageUrl? },
- *   createdAt: string,     // منسّق
- *   receivedAt: number     // timestamp بالملّي ثانية
- * }
+ * Save a single message immediately in Firestore
  */
 export async function addMessageInstant(threadId, author, text, imageUrl) {
+  const context = { threadId, author };
+  logger.debug('addMessageInstant: called', { ...context, textLength: text.length, hasImage: Boolean(imageUrl) });
   if (typeof text !== 'string' || !text.trim()) {
+    logger.error('addMessageInstant: invalid message content', context);
     throw new Error('Message content must be a non-empty string');
   }
 
   const metaRef = doc(db, `threads/${threadId}/metadata/counter`);
   const msgsCol = collection(db, `threads/${threadId}/messages`);
+  const startTime = Date.now();
 
-  await runTransaction(db, async (tx) => {
-    // 1. اقرأ عدّاد التسلسل الحالي
-    const metaSnap = await tx.get(metaRef);
-    const lastSeq = metaSnap.exists() ? metaSnap.data().lastSeqId : 0;
-    const nextSeq = lastSeq + 1;
+  try {
+    logger.debug('addMessageInstant: starting transaction', context);
+    await runTransaction(db, async (tx) => {
+      const metaSnap = await tx.get(metaRef);
+      const lastSeq = metaSnap.exists() ? metaSnap.data().lastSeqId : 0;
+      const nextSeq = lastSeq + 1;
 
-    // 2. حدّث عدّاد التسلسل
-    tx.set(metaRef, { lastSeqId: nextSeq }, { merge: true });
+      tx.set(metaRef, { lastSeqId: nextSeq }, { merge: true });
+      const timestampMs = Date.now();
+      const createdAt = formatTimestamp(timestampMs);
+      const msg = { seqId: nextSeq, author, content: { text, ...(imageUrl && { imageUrl }) }, createdAt, receivedAt: timestampMs };
+      const msgRef = doc(msgsCol);
+      tx.set(msgRef, msg);
+      logger.debug('addMessageInstant: wrote message', { ...context, seqId: nextSeq });
+    });
 
-    // 3. جهّز بيانات الرسالة مع seqId
-    const timestampMs = Date.now();
-    const createdAt = formatTimestamp(timestampMs);
-    const msg = {
-      seqId: nextSeq,
-      author,
-      content: { text, ...(imageUrl && { imageUrl }) },
-      createdAt,
-      receivedAt: timestampMs
-    };
-
-    // 4. أضف الرسالة
-    const msgRef = doc(msgsCol);
-    tx.set(msgRef, msg);
-  });
+    const duration = Date.now() - startTime;
+    logger.info('addMessageInstant: message saved to Firestore', { ...context, duration: `${duration}ms` });
+  } catch (err) {
+    logger.error('addMessageInstant: transaction failed', { ...context, error: err.message });
+    throw err;
+  }
 }
 
 /**
- * أضف رسالة (نصيّة أو معها رابط صورة) إلى البافر للكتابة لاحقًا دفعة واحدة
- * @param {string} threadId
- * @param {'user'|'assistant'} author
- * @param {string} text
- * @param {string} [imageUrl]
+ * Buffer a message for later batch write
  */
 export function bufferMessage(threadId, author, text, imageUrl) {
+  logger.debug('bufferMessage: buffering message', { threadId, author, textLength: text.length, hasImage: Boolean(imageUrl) });
   const timestampMs = Date.now();
-  const content = { text };
-  if (imageUrl) {
-    content.imageUrl = imageUrl;
-  }
+  const content = { text, ...(imageUrl && { imageUrl }) };
   return assistantBatcher.add(threadId, { author, content, timestampMs });
 }
 
 /**
- * إفراغ أي رسائل متبقية في البافر (مثلاً عند نهاية الجلسة)
+ * Flush any remaining buffered messages
  */
 export async function flushAll(threadId) {
-  await assistantBatcher.flushAll(threadId);
+  logger.debug('flushAll: flushing all buffered messages', { threadId });
+  try {
+    await assistantBatcher.flushAll(threadId);
+    logger.info('flushAll: all buffered messages flushed', { threadId });
+  } catch (err) {
+    logger.error('flushAll: failed to flush buffers', { threadId, error: err.message });
+    throw err;
+  }
 }
