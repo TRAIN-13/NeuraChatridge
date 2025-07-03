@@ -1,15 +1,15 @@
 // src/utils/firebase.js
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, getDocs } from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyDtdlNo5rFIKrzwwXhOW2Ih8qyefRNr4s8",
-    authDomain: "ajeer-ai-test-03.firebaseapp.com",
-    projectId: "ajeer-ai-test-03",
-    storageBucket: "ajeer-ai-test-03.firebasestorage.app",
-    messagingSenderId: "170968575724",
-    appId: "1:170968575724:web:b3845e37efa27ccf61ffc9",
-    measurementId: "G-G9KC7PL8KQ"
+    apiKey: "AIzaSyA7CfdsI8UHkOY8vC0_xuBQxPYjVSGOtK0",
+    authDomain: "ajeer-ai-test-04.firebaseapp.com",
+    projectId: "ajeer-ai-test-04",
+    storageBucket: "ajeer-ai-test-04.firebasestorage.app",
+    messagingSenderId: "540748174884",
+    appId: "1:540748174884:web:bb9a5b523f5e3b108beab1",
+    measurementId: "G-Y2BZRRDQWD"
 };
 
 // Initialize Firebase app

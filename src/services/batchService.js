@@ -1,6 +1,6 @@
 // src/services/batchService.js
 import logger from '../utils/logger.js';
-import { writeBatch, doc, collection } from 'firebase/firestore';
+import { writeBatch, doc, collection, runTransaction } from 'firebase/firestore';
 import { formatTimestamp } from '../utils/dateUtils.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -123,7 +123,7 @@ export class ResilientBatcher {
         this.buffers.get(threadId).unshift(...items);
         return this._flushWithRetry(threadId, attempt + 1);
       } else {
-        logger.critical('ResilientBatcher._flushWithRetry: permanent flush failure', { threadId, operationId, lost: items.length });
+        logger.error('ResilientBatcher._flushWithRetry: permanent flush failure', { threadId, operationId, lost: items.length });
       }
     }
   }

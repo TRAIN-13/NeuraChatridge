@@ -4,6 +4,7 @@ import logger from './logger.js';
 import { aiAddMessage } from '../services/openaiService.js';
 import { updateThreadTimestamp } from '../services/threadService.js';
 import { bufferMessage } from '../services/messageService.js';
+import { incrementUserMessageCount } from '../services/threadService.js';
 
 /**
  * توليد معرف مؤقت للزائر (Guest User)
@@ -46,6 +47,8 @@ export async function handleInitialMessage(threadId, message, requestId) {
       bufferMessage(threadId, 'user', message),
       updateThreadTimestamp(threadId)
     ]);
+    // زيادة عداد المستخدم للرسالة الأولى
+    await incrementUserMessageCount(threadId);
     logger.info('Initial message processed', { requestId, threadId });
   }  catch (err) {
     logger.error('Initial message handling failed', {

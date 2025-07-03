@@ -1,12 +1,16 @@
 // src/utils/validation.js
 import { z } from 'zod';
-import { Buffer } from 'buffer';
-
 
 /**
- * Represents input validation failures with details.
+ * Custom error class for validation failures.
+ * Carries detailed issues and sends a precise message.
+ * @extends Error
  */
 export class ValidationError extends Error {
+  /**
+   * @param {string} message - Detailed error message
+   * @param {object} details - Additional error details (e.g., issues array)
+   */
   constructor(message, details = {}) {
     super(message);
     this.name = 'ValidationError';
@@ -15,57 +19,96 @@ export class ValidationError extends Error {
   }
 }
 
+// ======== PATTERNS ========
+const USER_ID_PATTERN = /^[a-zA-Z0-9_-]{5,50}$/;
+const THREAD_ID_PATTERN = /^[a-zA-Z0-9_-]{5,50}$/;
+const MAX_MESSAGE_LENGTH = 500;
+
+// ======== ERROR MESSAGES ========
+const ERROR_MESSAGES = {
+  USER_ID: 'معرف المستخدم يجب أن يتكون من 5 إلى 50 حرفاً (أحرف، أرقام، _ ، -)',
+  THREAD_ID: 'معرف الثريد يجب أن يتكون من 5 إلى 50 حرفاً (أحرف، أرقام، _ ، -)',
+  MESSAGE_REQUIRED: 'محتوى الرسالة مطلوب',
+  MESSAGE_TOO_LONG: `الرسالة يجب ألا تتجاوز ${MAX_MESSAGE_LENGTH} حرفاً`,
+};
+
+// ======== SCHEMAS ========
+
 /**
- * Schema to validate IDs (threadId, userId)
+ * Schema for creating a new thread.
+ * POST /api/threads
  */
-export const IdSchema = z.string()
-  .regex(/^[a-zA-Z0-9_-]{5,50}$/, 'Invalid ID format');
-
-// Maximum allowed image size: 2 megabytes
-const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // bytes
-
-// Supported image MIME types
-const ALLOWED_IMAGE_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp'
-];
+export const createThreadSchema = z.object({
+  user_Id: z
+    .string()
+    .regex(USER_ID_PATTERN, ERROR_MESSAGES.USER_ID)
+    .optional(),
+  message: z
+    .string()
+    .min(1, ERROR_MESSAGES.MESSAGE_REQUIRED)
+    .max(MAX_MESSAGE_LENGTH, ERROR_MESSAGES.MESSAGE_TOO_LONG),
+}).strict().strip();
 
 /**
- * Validate image buffer and MIME type.
- * Throws ValidationError if:
- *  - Data is not a Buffer or Uint8Array
- *  - MIME type not supported
- *  - Size exceeds MAX_IMAGE_SIZE
+ * Base schema for operations requiring userId and threadId.
+ */
+const baseSchema = z.object({
+  userId: z.string().regex(USER_ID_PATTERN, ERROR_MESSAGES.USER_ID),
+  threadId: z.string().regex(THREAD_ID_PATTERN, ERROR_MESSAGES.THREAD_ID),
+}).strict().strip();
+
+/**
+ * Schema for adding messages.
+ * POST /api/create-messages
+ */
+export const addMessageSchema = baseSchema.extend({
+  message: z
+    .string()
+    .min(1, ERROR_MESSAGES.MESSAGE_REQUIRED)
+    .max(MAX_MESSAGE_LENGTH, ERROR_MESSAGES.MESSAGE_TOO_LONG),
+});
+
+/**
+ * Schema for fetching messages.
+ * POST /api/fetch-messages
+ */
+export const fetchMessagesSchema = baseSchema;
+
+// ======== VALIDATION MIDDLEWARE ========
+
+/**
+ * Returns Express middleware to validate req.body against the given Zod schema.
+ * On success, attaches parsed data to req.validated.
+ * On failure, throws ValidationError with detailed reasons.
  *
- * @param {Buffer|Uint8Array} buffer - Raw image data
- * @param {string} mimetype - MIME type of the image
+ * @param {import('zod').ZodSchema} schema - Zod schema to validate against
  */
-export function validateImage(buffer, mimetype) {
-  // Check buffer type
-  if (!buffer || !(Buffer.isBuffer(buffer) || buffer instanceof Uint8Array)) {
-    throw new ValidationError('Image data must be a Buffer or Uint8Array', {
-      code: 'INVALID_BUFFER'
-    });
-  }
+export function validate(schema) {
+  return (req, res, next) => {
+    // Normalize alias fields
+    const raw = { ...req.body };
+    if (raw.user_Id && !raw.userId) raw.userId = raw.user_Id;
+    if (raw.thread_Id && !raw.threadId) raw.threadId = raw.thread_Id;
+    // Remove aliases to avoid unrecognized keys
+    delete raw.user_Id;
+    delete raw.thread_Id;
 
-  // Check MIME type
-  if (!ALLOWED_IMAGE_TYPES.includes(mimetype)) {
-    throw new ValidationError('Unsupported image type', {
-      code: 'UNSUPPORTED_IMAGE_TYPE',
-      allowedTypes: ALLOWED_IMAGE_TYPES,
-      providedType: mimetype
-    });
-  }
-
-  // Check size limit
-  const size = buffer.length;
-  if (size > MAX_IMAGE_SIZE) {
-    throw new ValidationError('Image size exceeds the 2MB limit', {
-      code: 'IMAGE_TOO_LARGE',
-      maxSize: MAX_IMAGE_SIZE,
-      actualSize: size
-    });
-  }
+    try {
+      const parsed = schema.parse(raw);
+      req.validated = parsed;
+      return next();
+    } catch (zodError) {
+      // Extract field-specific issues
+      const issues = zodError.errors.map(issue => ({
+        field: issue.path.join('.'),
+        message: issue.message,
+        code: issue.code,
+      }));
+      // Compose a detailed message from issues
+      const message = issues
+        .map(i => `${i.field ? i.field + ': ' : ''}${i.message}`)
+        .join('; ');
+      return next(new ValidationError(message, { issues }));
+    }
+  };
 }

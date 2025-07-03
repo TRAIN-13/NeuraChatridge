@@ -1,9 +1,10 @@
 // src/services/messageService.js
 import logger from '../utils/logger.js';
 import { db } from '../utils/firebase.js';
-import { collection, doc, runTransaction } from 'firebase/firestore';
+import { doc, collection, increment, runTransaction } from "firebase/firestore";
 import { ResilientBatcher } from './batchService.js';
 import { formatTimestamp } from '../utils/dateUtils.js';
+import { incrementUserMessageCount } from './threadService.js';
 
 /**
  * Flush a batch of assistant messages into Firestore with client timestamp
@@ -89,6 +90,7 @@ export async function addMessageInstant(threadId, author, text, imageUrl) {
       const msg = { seqId: nextSeq, author, content: { text, ...(imageUrl && { imageUrl }) }, createdAt, receivedAt: timestampMs };
       const msgRef = doc(msgsCol);
       tx.set(msgRef, msg);
+      tx.update(metaRef, { userMessageCount: increment(1) });
       logger.debug('addMessageInstant: wrote message', { ...context, seqId: nextSeq });
     });
 

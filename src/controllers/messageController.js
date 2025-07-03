@@ -2,136 +2,115 @@
 import logger from '../utils/logger.js';
 import { aiAddMessage } from '../services/openaiService.js';
 import { addMessageInstant, flushAll } from '../services/messageService.js';
-import { updateThreadTimestamp } from '../services/threadService.js';
+import { updateThreadTimestamp, getUserMessageCount } from '../services/threadService.js';
 import { runThreadStream } from '../services/streamService.js';
 import { sanitizeError } from '../utils/errorUtils.js';
-import { normalizeAndValidateInput, setupConnectionCleanup, sendErrorResponse } from '../utils/messageHelpers.js';
+import { setupConnectionCleanup, sendErrorResponse } from '../utils/messageHelpers.js';
 import { initSSE, sendSSEMetaMessage } from '../utils/sseHelpers.js';
 import { uploadFile } from '../services/s3Service.js';
-import { setTimeout } from 'timers/promises';
+import { setTimeout as timerSetTimeout } from 'timers/promises';
 
-// مهلة زمنية للاستدعاءات (30 ثانية)
-const OPENAI_TIMEOUT = 30000;
+// Timeout for OpenAI requests (milliseconds)
+
+// الحد الأقصى لرسائل المستخدم في كل ثريد (افتراضي: 10)
+const MAX_USER_MESSAGES = parseInt(process.env.MAX_USER_MESSAGES || '20', 10);
+// Timeout for OpenAI requests (milliseconds)
+const OPENAI_TIMEOUT = process.env.OPENAI_TIMEOUT || 30000;
+
 
 /**
+ * Handler for adding a new user message to an existing thread.
+ * 1) Validates input via middleware (req.validated)
+ * 2) Optionally uploads image to S3
+ * 3) Persists the user message immediately in Firestore
+ * 4) Initializes SSE stream
+ * 5) Prepares payload and handles AI interaction asynchronously
+ * 6) Streams assistant responses via SSE
+ *
  * POST /api/create-messages
- * يرفع رسالة المستخدم فورياً، يرسلها إلى مساعد OpenAI، ثم يبدأ تدفق الردود عبر SSE
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
  */
 export async function addMessage(req, res) {
   const { requestId } = req;
   const startTime = Date.now();
-  logger.debug('Entering addMessage handler', { requestId, path: req.originalUrl, method: req.method });
 
   try {
-    // 1) التحقق من المدخلات وتوحيدها
-    logger.debug('Validating input', { requestId, body: req.body });
-    const { userId, threadId, message } = normalizeAndValidateInput(req.body);
+  
+  // 0. تحقق من الحد الأقصى لرسائل المستخدم
+  const count = await getUserMessageCount(req.validated.threadId);
+  if (count >= MAX_USER_MESSAGES) {
+    const err = new Error('User message limit reached');
+    err.statusCode = 429;
+    throw err;
+    }
+    // 1. Extract validated input
+    const { userId, threadId, message: messageContent } = req.validated;
+    logger.info('Processing new message', { requestId, userId, threadId });
 
-    // 2) إذا وصل ملف صورة، ارفعه فوراً إلى S3 للحصول على URL
+    // 2. Upload image to S3 if provided
     let imageUrl = null;
     if (req.file?.buffer) {
-      logger.debug('Detected image buffer, uploading to S3', {
-        requestId,
-        threadId,
-        filename: req.file.originalname
-      });
+      logger.debug('Uploading image to S3', { requestId, threadId, filename: req.file.originalname });
       const uploadStart = Date.now();
       const { url } = await uploadFile(req.file.buffer);
       imageUrl = url;
-      logger.info('Image uploaded to S3', {
-        requestId,
-        threadId,
-        filename: req.file.originalname,
-        imageUrl,
-        uploadDuration: `${Date.now() - uploadStart}ms`
-      });
+      logger.info('Image uploaded', { requestId, threadId, imageUrl, duration: `${Date.now() - uploadStart}ms` });
     }
 
-    logger.info('Processing new message', {
-      requestId,
-      userId,
-      threadId,
-      messageLength: message.length,
-      hasImage: Boolean(imageUrl)
-    });
+    // 3. Persist user message immediately
+    await addMessageInstant(threadId, 'user', messageContent, imageUrl);
+    await updateThreadTimestamp(threadId);
+    logger.info('User message persisted', { requestId, threadId });
 
-    // 3) تهيئة SSE وإرسال حدث meta
-    logger.debug('Initializing SSE', { requestId, threadId, userId });
+    // 4. Initialize SSE stream
     initSSE(res);
     sendSSEMetaMessage(res, threadId, userId);
-
-    // 4) ربط تنظيف موارد التخزين المؤقت عند انقطاع الاتصال
     setupConnectionCleanup(req, res, threadId);
 
-    // 5) بناء محتوى الرسالة
-    const segments = [{ type: 'text', text: message }];
-    if (imageUrl) {
-      segments.push({ type: 'image_url', image_url: { url: imageUrl } });
-    }
+    // 5. Prepare payload for AI
+    const segments = [{ type: 'text', text: messageContent }];
+    if (imageUrl) segments.push({ type: 'image_url', image_url: { url: imageUrl } });
     const userPayload = { role: 'user', content: segments };
-    logger.debug('Prepared user payload for OpenAI', { requestId, threadId, userPayload });
+    logger.debug('User payload prepared', { requestId, threadId });
 
-    // 6) إرسال الرسالة إلى OpenAI مع مهلة زمنية
-    try {
-      logger.debug('Sending message to OpenAI', { requestId, threadId });
-      await Promise.race([
-        aiAddMessage(threadId, userPayload),
-        setTimeout(OPENAI_TIMEOUT).then(() => { throw new Error('OpenAI request timed out'); })
-      ]);
-      logger.info('OpenAI request succeeded', { requestId, threadId });
-    } catch (err) {
-      logger.error('Error during OpenAI request', {
-        requestId,
-        threadId,
-        error: err.message
-      });
-      throw err;
-    }
-
-    // 7) حفظ رسالة المستخدم وتحديث طابع الثريد
-    try {
-      logger.debug('Saving user message to Firestore', { requestId, threadId });
-      const saveStart = Date.now();
-      await addMessageInstant(threadId, 'user', message, imageUrl);
-      await updateThreadTimestamp(threadId);
-      logger.info('User message saved to Firestore', { requestId, threadId, saveDuration: `${Date.now() - saveStart}ms` });
-    } catch (err) {
-      logger.warn('Failed to save user message or update timestamp', {
-        requestId,
-        threadId,
-        error: err.message
-      });
-    }
-
-    // 8) بدء بث SSE لردود المساعد
-    logger.debug('Starting SSE stream for assistant responses', { requestId, threadId });
-    const result = runThreadStream(threadId, req, res);
-    logger.debug('runThreadStream invoked', { requestId, threadId });
-    return result;
-
-  } catch (err) {
-    // تسجيل الخطأ مركزيًّا
-    logger.error('Message processing failed in addMessage', {
-      requestId,
-      path: req.originalUrl,
-      error: err.message,
-      stack: err.stack
+    // 6. Background: send to OpenAI with timeout
+    setImmediate(async () => {
+      try {
+        logger.debug('Sending payload to OpenAI', { requestId, threadId });
+        await Promise.race([
+          aiAddMessage(threadId, userPayload),
+          timerSetTimeout(OPENAI_TIMEOUT).then(() => { throw new Error('OpenAI request timed out'); })
+        ]);
+        logger.info('OpenAI processing succeeded', { requestId, threadId });
+      } catch (error) {
+        logger.error('Background AI processing failed', { requestId, threadId, error });
+        // Notify client of background failure via SSE
+        res.write(`event: error\ndata:${JSON.stringify({ code: 'BACKGROUND_PROCESS_FAILED', message: error.message, requestId })}\n\n`);
+      }
     });
 
-    // تفريغ أي رسائل باقية في البافر
+    // 7. Start streaming assistant responses
+    return runThreadStream(threadId, req, res);
+
+  } catch (error) {
+    // Handle synchronous errors
+    logger.error('addMessage handler error', { requestId, error });
+
+    // Flush any buffered messages
     try {
-      await flushAll(req.body.threadId ?? req.body.thread_Id);
-      logger.debug('Flushed remaining message buffers after failure', { requestId });
-    } catch (flushErr) {
-      logger.error('Error flushing buffers after failure', { requestId, error: flushErr.message });
+      await flushAll(req.validated?.threadId);
+      logger.debug('Flushed buffers after failure', { requestId });
+    } catch (flushError) {
+      logger.error('Error flushing buffers after failure', { requestId, error: flushError });
     }
 
-    // تنقية الخطأ وإرساله للعميل
-    const { code, message: errMsg } = sanitizeError(err);
-    return sendErrorResponse(res, code, errMsg, requestId);
+    const safeError = sanitizeError(error);
+    return sendErrorResponse(res, safeError.code || error.statusCode || 500, safeError.message, requestId);
 
   } finally {
-    const totalTime = Date.now() - startTime;
-    logger.info('addMessage handler completed', { requestId, totalTime: `${totalTime}ms` });
+    // Log handler completion
+    const duration = Date.now() - startTime;
+    logger.info('addMessage handler completed', { requestId, duration: `${duration}ms` });
   }
 }

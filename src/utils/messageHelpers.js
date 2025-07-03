@@ -3,7 +3,7 @@ import { flushAll } from '../services/messageService.js';
 import logger from './logger.js';
 
 // أقصى طول مسموح به للرسالة وصيغة المعرف
-const MAX_MESSAGE_LENGTH = 1000;
+const MAX_MESSAGE_LENGTH = 500;
 const ID_REGEX = /^[a-zA-Z0-9_-]{5,50}$/;
 
 export function normalizeAndValidateInput(body) {

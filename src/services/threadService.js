@@ -1,5 +1,5 @@
 import { db } from "../utils/firebase.js";
-import { doc, collection, getDocs, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, increment } from "firebase/firestore";
 
 /**
  * Create (or update) a thread document in Firestore under collection `threads`.
@@ -25,8 +25,36 @@ export async function createFSThread(userId, threadId, isGuest) {
   await setDoc(threadRef, data);
   
   const metaRef = doc(db, "threads", threadId, "metadata", "counter");
-  await setDoc(metaRef, { lastSeqId: 0 });
+  await setDoc(metaRef, {
+    lastSeqId: 0,
+    userMessageCount: 0    // يبدأ العداد من صفر
+  });
+
 }
+
+/**
+ * ترجع عدد رسائل المستخدم الحالية من ميتاداتا الـ counter.
+ * @param {string} threadId
+ * @returns {Promise<number>}
+ */
+export async function getUserMessageCount(threadId) {
+  const metaRef = doc(db, `threads/${threadId}/metadata/counter`);
+  const snap = await getDoc(metaRef);
+  return snap.exists() ? snap.data().userMessageCount : 0;
+}
+
+/**
+ * تزيد عداد رسائل المستخدم ذرّيًا في ميتاداتا الـ counter.
+ * @param {string} threadId
+ * @returns {Promise<void>}
+ */
+export async function incrementUserMessageCount(threadId) {
+  const metaRef = doc(db, `threads/${threadId}/metadata/counter`);
+  await updateDoc(metaRef, {
+    userMessageCount: increment(1)
+  });
+}
+
 
 /**
  * Update the `updatedAt` timestamp of an existing thread document.

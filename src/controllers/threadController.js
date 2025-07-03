@@ -7,83 +7,68 @@ import {
   generateGuestUserId,
   validateUserId,
   handleInitialMessage,
-  logOperationSuccess
 } from '../utils/threadHelpers.js';
 import { sanitizeError } from '../utils/errorUtils.js';
 import { initSSE, sendSSEMetaThread } from '../utils/sseHelpers.js';
 
 /**
- * POST /api/threads
+ * Controller to create a new chat thread, send SSE metadata,
+ * process the initial message in the background, and start AI streaming.
+ * Assumes request validation middleware has populated req.validated.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
  */
-export async function createThread(req, res, next) {
+export async function createThread(req, res) {
   const { requestId } = req;
   const startTime = Date.now();
-  logger.debug('Entering createThread handler', {
-    requestId,
-    path: req.originalUrl,
-    method: req.method
-  });
 
-  let threadId, userId, isGuest;
+  // Extract and sanitize validated input
+  const { user_Id: rawUserId, message } = req.validated;
+  const messageContent = message.trim();
+
+  // Determine or generate user ID
+  const isGuest = !rawUserId;
+  const userId = isGuest
+    ? generateGuestUserId()
+    : validateUserId(rawUserId);
+
+  logger.info('Starting thread creation', { requestId, userId, isGuest });
+
   try {
-    const { user_Id: rawUserId, message } = req.body;
-    logger.debug('Raw input received', { requestId, rawUserId, messageLength: message?.length });
-
-    // Validate initial message
-    if (!message || !message.trim()) {
-      logger.warn('Invalid input: initial message is required', { requestId });
-      return res.status(400).json({
-        success: false,
-        error: { code: 'INVALID_INPUT', message: 'Initial message is required' },
-        requestId
-      });
-    }
-
-    // Determine user identity
-    isGuest = !rawUserId;
-    if (isGuest) {
-      userId = generateGuestUserId();
-      logger.info('Generated guest user ID', { requestId, userId });
-    } else {
-      logger.debug('Validating provided user ID', { requestId, rawUserId });
-      userId = validateUserId(rawUserId);
-      logger.info('Provided user ID validated', { requestId, userId });
-    }
-
-    // Create AI thread
-    logger.info('Creating AI thread', { requestId });
-    threadId = await createAIThread();
-    logger.info('AI thread created', { requestId, threadId });
-
-    // Create Firestore thread document
-    logger.debug('Creating Firestore thread document', { requestId, threadId, userId, isGuest });
+    // 1. Create AI thread and Firestore document
+    const threadId = await createAIThread();
     await createFSThread(userId, threadId, isGuest);
-    logger.info('Firestore thread document created', { requestId, threadId });
+    logger.info('Thread created', { requestId, threadId });
 
-    // Handle initial message
-    logger.debug('Handling initial message', { requestId, threadId });
-    await handleInitialMessage(threadId, message.trim(), requestId);
-    logger.info('Initial message processed', { requestId, threadId });
+    // 2. Initialize SSE and send metadata
+    initSSE(res);
+    sendSSEMetaThread(res, threadId, userId, isGuest);
 
-  } catch (err) {
-    logger.error('Thread creation failed', {
-      requestId,
-      error: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    // 3. Process initial message asynchronously
+    setImmediate(async () => {
+      try {
+        await handleInitialMessage(threadId, messageContent, requestId);
+        logger.info('Initial message processed', { requestId, threadId });
+      } catch (error) {
+        logger.error('Initial message handling error', { requestId, threadId, error });
+        // Notify client via SSE
+        res.write(`event: error\ndata:${JSON.stringify({
+          code: 'INITIAL_MESSAGE_FAILED',
+          message: error.message,
+        })}\n\n`);
+      }
     });
-    const safeError = sanitizeError(err, req);
-    logger.debug('Sending error response for createThread', { requestId, safeError });
-    return res.status(500).json({ success: false, error: safeError, requestId });
+
+    // 4. Start AI streaming
+    return runThreadStream(threadId, req, res);
+  } catch (error) {
+    // Handle synchronous errors
+    logger.error('Thread creation failed', { requestId, error });
+    const safeError = sanitizeError(error);
+    res.status(error.statusCode || 500).json({ success: false, error: safeError, requestId });
   } finally {
-    logOperationSuccess(startTime, requestId);
+    const duration = Date.now() - startTime;
+    logger.info('createThread handler finished', { requestId, duration: `${duration}ms` });
   }
-
-  // Initialize SSE and stream responses
-  logger.debug('Initializing SSE for new thread', { requestId, threadId, userId, isGuest });
-  initSSE(res);
-  sendSSEMetaThread(res, threadId, userId, isGuest);
-  logger.info('SSE metadata sent', { requestId, threadId, userId, isGuest });
-
-  logger.debug('Starting SSE stream for thread', { requestId, threadId });
-  return runThreadStream(threadId, req, res);
 }
