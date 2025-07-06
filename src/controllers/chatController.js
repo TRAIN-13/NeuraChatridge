@@ -2,62 +2,53 @@
 import logger from '../utils/logger.js';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../utils/firebase.js';
-import { sanitizeError } from '../utils/errorUtils.js';
+import { NotFoundError, ForbiddenError } from '../utils/appError.js';
+import { ERROR_CODES } from '../utils/errorCodes.js';
 
 /**
  * Handler to fetch all messages for a given thread.
  * Assumes validation middleware has populated req.validated with userId and threadId.
  * POST /api/fetch-messages
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
  */
 export async function fetchMessages(req, res) {
-  const { requestId } = req;
+  const { requestId, locale } = req;
   const startTime = Date.now();
+  const { userId, threadId } = req.validated;
 
-  try {
-    // 1. Extract validated input
-    const { userId, threadId } = req.validated;
-    logger.info('Fetch messages request', { requestId, userId, threadId });
+  logger.info('Fetch messages request', { requestId, userId, threadId });
 
-    // 2. Retrieve thread metadata
-    const threadRef = doc(db, 'threads', threadId);
-    const threadSnap = await getDoc(threadRef);
-    if (!threadSnap.exists()) {
-      const error = new Error('Thread not found');
-      error.statusCode = 404;
-      throw error;
-    }
-    const threadData = threadSnap.data();
-
-    // 3. Verify ownership
-    if (threadData.userId && threadData.userId !== userId) {
-      const error = new Error('Forbidden');
-      error.statusCode = 403;
-      throw error;
-    }
-
-    // 4. Fetch and format messages
-    const msgsCol = collection(db, 'threads', threadId, 'messages');
-    const snapshot = await getDocs(msgsCol);
-    const messages = snapshot.docs
-      .map(docSnap => mapDocToMessage(docSnap.data()))
-      .sort((a, b) => a.receivedAt - b.receivedAt);
-
-    logger.info('Messages fetched', { requestId, threadId, count: messages.length });
-
-    // 5. Send response
-    return res.status(200).json({ messages });
-  } catch (error) {
-    logger.error('fetchMessages error', { requestId, error });
-    const safeError = sanitizeError(error);
-    const status = error.statusCode || 500;
-    return res.status(status).json({ error: safeError });
-  } finally {
-    const duration = Date.now() - startTime;
-    logger.info('fetchMessages handler completed', { requestId, duration: `${duration}ms` });
+  // Retrieve thread metadata
+  const threadRef = doc(db, 'threads', threadId);
+  const threadSnap = await getDoc(threadRef);
+  if (!threadSnap.exists()) {
+    throw new NotFoundError(
+      ERROR_CODES.DATABASE.THREAD_NOT_FOUND,
+      { threadId, locale }
+    );
   }
+  const threadData = threadSnap.data();
+
+  // Verify ownership
+  if (threadData.userId && threadData.userId !== userId) {
+    throw new ForbiddenError(
+      ERROR_CODES.AUTH.FORBIDDEN,
+      { threadId, userId, locale }
+    );
+  }
+
+  // Fetch and format messages
+  const msgsCol = collection(db, 'threads', threadId, 'messages');
+  const snapshot = await getDocs(msgsCol);
+  const messages = snapshot.docs
+    .map(docSnap => mapDocToMessage(docSnap.data()))
+    .sort((a, b) => a.receivedAt - b.receivedAt);
+
+  logger.info('Messages fetched', { requestId, threadId, count: messages.length });
+
+  res.status(200).json({ messages });
+
+  const duration = Date.now() - startTime;
+  logger.info('fetchMessages handler completed', { requestId, duration: `${duration}ms` });
 }
 
 /**

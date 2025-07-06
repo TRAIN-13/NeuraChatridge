@@ -1,0 +1,8 @@
+{
+  "ERRORS": {
+    "MSG_LIMIT_REACHED": "You have reached the maximum number of messages ({max}).",
+    "INVALID_ID_FORMAT": "Invalid identifier format.",
+    "MESSAGE_TOO_LONG": "Message must not exceed {max} characters.",
+    "INTERNAL_ERROR": "An unexpected error occurred. Please try again later."
+  }
+}

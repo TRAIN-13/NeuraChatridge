@@ -1,7 +1,7 @@
 // ./src/routes/chatRoutes.js
 import express from 'express';
 import { requestTracker } from '../middleware/requestTracker.js';
-import { errorLogger, wrapAsync } from '../middleware/errorHandler.js';
+import { wrapAsync } from '../middleware/errorHandler.js';
 
 import { validate, createThreadSchema, addMessageSchema, fetchMessagesSchema } from '../utils/validation.js';
 
@@ -34,8 +34,5 @@ router.post('/fetch-messages',
 // في src/routes/chatRoutes.js
 router.get('/ping', (req, res) => res.send('pong'));
 
-
-// 3) تسجيل الأخطاء
-router.use(errorLogger);
 
 export default router;

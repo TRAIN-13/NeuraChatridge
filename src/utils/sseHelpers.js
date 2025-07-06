@@ -1,5 +1,10 @@
 // src/utils/sseHelpers.js
 
+import { AppError, ProcessingError } from '../utils/appError.js';
+import { ERROR_CODES } from '../utils/errorCodes.js';
+import { getMessage } from '../locales/i18n.js';
+
+
 /**
  * يهيّئ الاستجابة لـ SSE (يُستخدم مرة واحدة)
  * @param {import('express').Response} res
@@ -88,4 +93,25 @@ export function sendSSEMetaMessage(res, threadId, userId) {
         data: { all: [{ threadId, userId }] }
     };
     sendSSEJson(res, payload);
+}
+
+/**
+ * Send a standardized SSE error event and close the stream.
+ * @param {import('express').Response} res
+ * @param {Error} err
+ * @param {string} locale
+ */
+export function sendSSEError(res, err, locale = 'en') {
+  // Map to AppError or fallback
+  let appErr = err instanceof AppError
+    ? err
+    : new ProcessingError(ERROR_CODES.INTERNAL.UNEXPECTED, { locale });
+
+  const data = {
+    code: appErr.errorCode,
+    message: getMessage(appErr.errorCode, appErr.details, locale),
+    timestamp: new Date().toISOString()
+  };
+  res.write(`event: error\ndata:${JSON.stringify(data)}\n\n`);
+  res.end();
 }

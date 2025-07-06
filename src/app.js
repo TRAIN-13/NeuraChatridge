@@ -8,9 +8,8 @@ import path from 'path';
 
 import chatRoutes from './routes/chatRoutes.js';
 import { requestTracker } from './middleware/requestTracker.js';
-import { errorLogger } from './middleware/errorHandler.js';
-
-
+import { errorMiddleware } from './middleware/errorHandler.js';
+import { localeMiddleware } from './middleware/locale.js';
 
 const app = express();
 
@@ -26,7 +25,10 @@ app.use(express.static(path.join(process.cwd(), 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 3. Session configuration (must come before routes)
+// 3. Localization middleware (after body parsers)
+app.use(localeMiddleware);
+
+// 4. Session configuration (must come before routes)
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
@@ -41,13 +43,14 @@ app.use(
   })
 );
 
-// 4. Request tracking middleware (assigns requestId and startTime)
+// 5. Request tracking middleware (assigns requestId and startTime)
 app.use(requestTracker);
 
-// 5. API routes
+// 6. API routes
 app.use('/api', chatRoutes);
 
-// 6. Global error handler (logs and responds with 500)
-app.use(errorLogger);
+// 7. Global error handler (logs and responds)
+app.use(errorMiddleware);
+
 
 export default app;

@@ -3,72 +3,52 @@ import logger from '../utils/logger.js';
 import { createAIThread } from '../services/openaiService.js';
 import { createFSThread } from '../services/threadService.js';
 import { runThreadStream } from '../services/streamService.js';
-import {
-  generateGuestUserId,
-  validateUserId,
-  handleInitialMessage,
-} from '../utils/threadHelpers.js';
-import { sanitizeError } from '../utils/errorUtils.js';
+import { generateGuestUserId, validateUserId, handleInitialMessage } from '../utils/threadHelpers.js';
+import { ValidationError, NotFoundError, ProcessingError } from '../utils/appError.js';
+import { ERROR_CODES } from '../utils/errorCodes.js';
 import { initSSE, sendSSEMetaThread } from '../utils/sseHelpers.js';
 
 /**
- * Controller to create a new chat thread, send SSE metadata,
- * process the initial message in the background, and start AI streaming.
- * Assumes request validation middleware has populated req.validated.
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
+ * Create a new chat thread, send SSE metadata,
+ * process the initial message asynchronously, and start AI streaming.
  */
 export async function createThread(req, res) {
-  const { requestId } = req;
-  const startTime = Date.now();
-
-  // Extract and sanitize validated input
+  const { requestId, locale } = req;
   const { user_Id: rawUserId, message } = req.validated;
   const messageContent = message.trim();
-
-  // Determine or generate user ID
   const isGuest = !rawUserId;
-  const userId = isGuest
-    ? generateGuestUserId()
-    : validateUserId(rawUserId);
+  const userId = isGuest ? generateGuestUserId() : validateUserId(rawUserId);
 
   logger.info('Starting thread creation', { requestId, userId, isGuest });
 
+  // 1. Create AI thread and Firestore document
+  let threadId;
   try {
-    // 1. Create AI thread and Firestore document
-    const threadId = await createAIThread();
-    await createFSThread(userId, threadId, isGuest);
-    logger.info('Thread created', { requestId, threadId });
-
-    // 2. Initialize SSE and send metadata
-    initSSE(res);
-    sendSSEMetaThread(res, threadId, userId, isGuest);
-
-    // 3. Process initial message asynchronously
-    setImmediate(async () => {
-      try {
-        await handleInitialMessage(threadId, messageContent, requestId);
-        logger.info('Initial message processed', { requestId, threadId });
-      } catch (error) {
-        logger.error('Initial message handling error', { requestId, threadId, error });
-        // Notify client via SSE
-        res.write(`event: error\ndata:${JSON.stringify({
-          code: 'INITIAL_MESSAGE_FAILED',
-          message: error.message,
-        })}\n\n`);
-      }
-    });
-
-    // 4. Start AI streaming
-    return runThreadStream(threadId, req, res);
-  } catch (error) {
-    // Handle synchronous errors
-    logger.error('Thread creation failed', { requestId, error });
-    const safeError = sanitizeError(error);
-    res.status(error.statusCode || 500).json({ success: false, error: safeError, requestId });
-  } finally {
-    const duration = Date.now() - startTime;
-    logger.info('createThread handler finished', { requestId, duration: `${duration}ms` });
+    threadId = await createAIThread();
+  } catch (err) {
+    throw new ProcessingError(
+      ERROR_CODES.OPENAI.TIMEOUT,
+      { locale, original: err.message }
+    );
   }
+
+  await createFSThread(userId, threadId, isGuest);
+  logger.info('Thread created', { requestId, threadId });
+
+  // 2. Initialize SSE and send metadata
+  initSSE(res);
+  sendSSEMetaThread(res, threadId, userId, isGuest, locale);
+
+  // 3. Process initial message in background
+  setImmediate(async () => {
+    try {
+      await handleInitialMessage(threadId, messageContent, requestId);
+      logger.info('Initial message processed', { requestId, threadId });
+    } catch (err) {
+      sendSSEError(res, err, locale);
+    }
+  });
+
+  // 4. Start AI streaming
+  runThreadStream(threadId, req, res);
 }

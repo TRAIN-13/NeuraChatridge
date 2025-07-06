@@ -1,23 +1,14 @@
 // src/utils/validation.js
 import { z } from 'zod';
+import { ValidationError } from './appError.js';
+import { ERROR_CODES }    from './errorCodes.js';
+
 
 /**
  * Custom error class for validation failures.
  * Carries detailed issues and sends a precise message.
  * @extends Error
  */
-export class ValidationError extends Error {
-  /**
-   * @param {string} message - Detailed error message
-   * @param {object} details - Additional error details (e.g., issues array)
-   */
-  constructor(message, details = {}) {
-    super(message);
-    this.name = 'ValidationError';
-    this.statusCode = 400;
-    this.details = details;
-  }
-}
 
 // ======== PATTERNS ========
 const USER_ID_PATTERN = /^[a-zA-Z0-9_-]{5,50}$/;
@@ -95,6 +86,13 @@ export function validate(schema) {
 
     try {
       const parsed = schema.parse(raw);
+      // ==== تحقق إضافي لطول الرسالة ====
+      if (parsed.message && parsed.message.length > MAX_MESSAGE_LENGTH) {
+        throw new ValidationError(
+          ERROR_CODES.VALIDATION.MESSAGE_TOO_LONG,
+          { max: MAX_MESSAGE_LENGTH, actual: parsed.message.length, locale: req.locale }
+        );
+      }
       req.validated = parsed;
       return next();
     } catch (zodError) {

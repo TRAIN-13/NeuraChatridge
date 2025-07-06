@@ -1,66 +1,53 @@
 // src/controllers/imageController.js
 import logger from '../utils/logger.js';
-import { ValidationError } from '../utils/validation.js';
+import { ProcessingError, ValidationError } from '../utils/ppError.js';
+import { ERROR_CODES } from '../utils/errorCodes.js';
 import { enqueueImageUpload } from '../services/imageService.js';
 
 /**
- * Express handler to initiate image upload.
- * Validates request and enqueues upload job for asynchronous processing.
+ * Initiate image upload: validate, enqueue, and respond.
  * @param {import('express').Request} req  - expects req.file.buffer
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-export async function uploadImage(req, res, next) {
-  const { file } = req;
-  const requestId = req.requestId;
-  logger.debug('Entering uploadImage handler', { requestId, path: req.originalUrl });
+export async function uploadImage(req, res) {
+  const { requestId, locale } = req;
+  logger.debug('uploadImage handler start', { requestId, path: req.originalUrl });
 
-  // Ensure a file was provided
+  const file = req.file;
   if (!file || !file.buffer) {
-    logger.warn('No file or buffer provided in request', { requestId });
-    const err = new ValidationError('No file provided');
-    return next(err);
+    logger.warn('No file provided', { requestId });
+    throw new ValidationError(
+      ERROR_CODES.VALIDATION.MESSAGE_REQUIRED, // or define IMAGE_REQUIRED
+      { locale }
+    );
   }
 
   const { buffer, originalname: filename, mimetype } = file;
-  logger.debug('File metadata', {
-    requestId,
-    filename,
-    mimetype,
-    size: buffer.byteLength
-  });
-
-  logger.info('Received upload request', { requestId, filename, size: buffer.byteLength });
+  logger.debug('File metadata', { requestId, filename, mimetype, size: buffer.byteLength });
 
   try {
-    logger.debug('Enqueueing image upload job', { requestId, filename });
-    const enqueueStart = Date.now();
-
+    logger.info('Enqueue image upload', { requestId, filename });
+    const start = Date.now();
     const jobId = await enqueueImageUpload(buffer, filename, mimetype);
+    const duration = Date.now() - start;
 
-    const enqueueDuration = `${Date.now() - enqueueStart}ms`;
-    logger.info('Image upload job enqueued', {
-      requestId,
-      filename,
-      jobId,
-      enqueueDuration
-    });
-
-    logger.debug('Sending 202 Accepted response', { requestId, status: 202 });
-    return res.status(202).json({
+    logger.info('Image job enqueued', { requestId, filename, jobId, duration: `${duration}ms` });
+    res.status(202).json({
       success: true,
-      message: 'Image upload enqueued successfully',
-      requestId,
-      jobId
+      jobId,
+      requestId
     });
   } catch (err) {
-    logger.error('Failed to enqueue image upload', {
-      requestId,
-      filename,
-      error: err.message
-    });
-    return next(err);
+    logger.error('enqueueImageUpload failed', { requestId, filename, error: err.message });
+    // wrap any non-AppError in ProcessingError
+    if (!(err instanceof ValidationError || err instanceof ProcessingError)) {
+      throw new ProcessingError(
+        ERROR_CODES.INTERNAL.UNEXPECTED,
+        { locale, original: err.message }
+      );
+    }
+    throw err;
   } finally {
-    logger.debug('Exiting uploadImage handler', { requestId });
+    logger.debug('uploadImage handler exit', { requestId });
   }
 }
